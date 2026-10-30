@@ -203,10 +203,12 @@ d'ordre de grandeur. La phase 1 corrige le banc et mesure Moka à nouveau.
     gzip, contre environ 4 Kio pour le runtime de Moka. Elle sera confirmée
     à la fin de S3. Le build de S1 (119 octets, sans noyaux) ne dit rien de
     la taille finale.
-*   **Taille de la mémoire linéaire et de la pile.** Les valeurs proposées sont
-    1 Mio et 64 Kio. Elles seront confirmées en S2, d'après la taille réelle
-    des variables globales : le nombre de pages est le plus petit qui laisse
-    au moins 25 % de marge au-dessus des tampons et de la pile.
+*   **Taille de la mémoire linéaire et de la pile.** Résolu en S2 : 13 pages
+    (832 Kio) et une pile de 64 Kio. Les tampons font 606 348 octets, soit
+    671 884 octets avec la pile. 13 pages laissent 26,8 % de marge, et
+    12 pages n'en laisseraient que 17 %. La pile est placée en tête de la
+    mémoire (adresses 0 à 65 536), si bien qu'un débordement de pile sort de
+    la mémoire et provoque un `trap` au lieu d'écraser un tampon.
 *   **Version exacte de Zig.** Résolu en S1 : Zig 0.17.0, la dernière
     version stable au 2026-10-30. Elle est écrite dans `mise.toml` et dans
     `minimum_zig_version` de `build.zig.zon`.
@@ -889,8 +891,8 @@ Trois critères ont été écartés au profit de l'aller-retour `infer` isolé :
 *   **Performance.** Le seuil G4 décide de la poursuite ou de l'arrêt du
     projet. Le temps d'initialisation (déquantification et ré-agencement
     d'environ 105 000 valeurs) est une mesure informative (G4).
-*   **Mémoire.** La taille est fixe, avec un plafond provisoire de 1 Mio (voir
-    Open Questions). La mémoire ne peut pas grandir, et un test le vérifie.
+*   **Mémoire.** La taille est fixe : 13 pages, soit 832 Kio (voir Open
+    Questions). La mémoire ne peut pas grandir, et un test le vérifie.
 *   **Taille de l'artefact.** `infer.wasm` doit rester sous un plafond, mesuré
     après gzip. La valeur proposée est 32 Kio (voir Open Questions). Un test de
     CI le vérifie en phase 2.
@@ -1394,10 +1396,16 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
         *   racine `src/infer/exports.zig` ;
         *   cible `wasm32-freestanding` avec `simd128`, mode `ReleaseFast` ;
         *   options : `entry = .disabled`, `rdynamic = true`,
-            `initial_memory = max_memory = 16 × 65536`,
+            `initial_memory = max_memory = 13 × 65536`,
             `stack_size = 65536`, `import_memory = false`,
-            `export_memory = true`. Le nombre de pages (16) est une
-            estimation, confirmée en S2 quand `buffers.zig` existe ;
+            `export_memory = true`. Le nombre de pages (16 en S1, une
+            estimation) a été fixé à 13 en S2 par `buffers.zig` (fichier 21).
+            Il est passé, avec la taille de pile, au module `memory_config`,
+            que `buffers.zig` lit pour son contrôle `comptime` ;
+        *   `src/geometry.zig` est un module nommé (`geometry`) : Zig refuse
+            qu'un module de racine `src/infer/exports.zig` importe un fichier
+            hors de `src/infer/`. Ses tests tournent dans un exécutable de
+            test à part ;
         *   `strip = true` : sans lui, `ReleaseFast` garde environ 5,5 Kio
             d'informations de débogage DWARF, qui fausseraient G6.
     *   **Option `-Dfixtures`** : le chemin des données de référence, par
@@ -1413,8 +1421,9 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
 ###### 18. `./src/test_root.zig` (Create)
 
 *   **Type / Scope** : racine des tests natifs.
-*   **Proposed Changes** : importe tous les modules de `src/` pour exécuter
-    leurs blocs `test`.
+*   **Proposed Changes** : importe tous les fichiers de `src/infer/` pour
+    exécuter leurs blocs `test`. `src/geometry.zig` est un module nommé
+    (fichier 17), et ses tests tournent dans leur propre exécutable de test.
 
 ###### 19. `./src/geometry.zig` (Create)
 

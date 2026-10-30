@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const WASM_PAGE_BYTES = 64 * 1024;
-const WASM_MEMORY_PAGES = 16;
+const WASM_MEMORY_PAGES = 13;
 const WASM_STACK_BYTES = 64 * 1024;
 
 pub fn build(b: *std.Build) void {
@@ -27,6 +27,10 @@ pub fn build(b: *std.Build) void {
     const gen_step = b.step("gen", "Generate model_layout.zig from the Moka manifest");
     gen_step.dependOn(&b.addInstallFile(model_layout_source, "gen/model_layout.zig").step);
 
+    const memory_options = b.addOptions();
+    memory_options.addOption(u32, "memory_pages", WASM_MEMORY_PAGES);
+    memory_options.addOption(u32, "stack_bytes", WASM_STACK_BYTES);
+
     const wasm_target = b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .freestanding,
@@ -37,6 +41,11 @@ pub fn build(b: *std.Build) void {
         .target = wasm_target,
         .optimize = .ReleaseFast,
     });
+    const wasm_geometry = b.createModule(.{
+        .root_source_file = b.path("src/geometry.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseFast,
+    });
     const wasm = b.addExecutable(.{
         .name = "infer",
         .root_module = b.createModule(.{
@@ -44,7 +53,11 @@ pub fn build(b: *std.Build) void {
             .target = wasm_target,
             .optimize = .ReleaseFast,
             .strip = true,
-            .imports = &.{.{ .name = "model_layout", .module = wasm_model_layout }},
+            .imports = &.{
+                .{ .name = "model_layout", .module = wasm_model_layout },
+                .{ .name = "geometry", .module = wasm_geometry },
+                .{ .name = "memory_config", .module = memory_options.createModule() },
+            },
         }),
     });
     wasm.entry = .disabled;
@@ -66,16 +79,24 @@ pub fn build(b: *std.Build) void {
         .root_source_file = model_layout_source,
         .target = host,
     });
-    const src_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_root.zig"),
-            .target = host,
-            .imports = &.{
-                .{ .name = "model_layout", .module = host_model_layout },
-                .{ .name = "build_options", .module = test_options.createModule() },
-            },
-        }),
+    const host_geometry = b.createModule(.{
+        .root_source_file = b.path("src/geometry.zig"),
+        .target = host,
     });
+    const geometry_tests = b.addTest(.{ .root_module = host_geometry });
+
+    const src_test_module = b.createModule(.{
+        .root_source_file = b.path("src/test_root.zig"),
+        .target = host,
+        .imports = &.{
+            .{ .name = "model_layout", .module = host_model_layout },
+            .{ .name = "geometry", .module = host_geometry },
+            .{ .name = "memory_config", .module = memory_options.createModule() },
+            .{ .name = "build_options", .module = test_options.createModule() },
+        },
+    });
+    src_test_module.addAnonymousImport("go_model_bin", .{ .root_source_file = weights });
+    const src_tests = b.addTest(.{ .root_module = src_test_module });
 
     const tool_test_module = b.createModule(.{
         .root_source_file = b.path("tools/gen_model_layout.zig"),
@@ -86,6 +107,7 @@ pub fn build(b: *std.Build) void {
     const tool_tests = b.addTest(.{ .root_module = tool_test_module });
 
     const test_step = b.step("test", "Run the native Zig tests");
+    test_step.dependOn(&b.addRunArtifact(geometry_tests).step);
     test_step.dependOn(&b.addRunArtifact(src_tests).step);
     test_step.dependOn(&b.addRunArtifact(tool_tests).step);
 }

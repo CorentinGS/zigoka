@@ -2,7 +2,8 @@ const std = @import("std");
 const model_layout = @import("model_layout");
 
 test {
-    _ = @import("geometry.zig");
+    _ = @import("infer/buffers.zig");
+    _ = @import("infer/weights.zig");
 }
 
 test "the generated layout matches the Moka model" {
