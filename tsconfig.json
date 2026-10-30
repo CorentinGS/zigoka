@@ -18,5 +18,5 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["js/", "oracle/", "bench/", "demo/", "tests/", "vendor/moka/src/", "playwright.config.ts"]
+  "include": ["js/", "oracle/", "bench/", "demo/", "match/", "tests/", "vendor/moka/src/", "playwright.config.ts"]
 }

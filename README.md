@@ -111,6 +111,37 @@ comprennent la compilation JIT. Les chiffres de référence sont ceux de
 `pnpm bench`. La force de jeu est celle de Moka sans recherche : le moteur
 choisit le même coup que Moka, plus vite.
 
+## Match avec recherche
+
+Sans recherche, les deux moteurs jouent la même partie, puisqu'ils choisissent
+le même coup. La vitesse ne compte qu'avec une recherche. `match/search.ts` est
+une recherche PUCT en TypeScript, sur les règles de Moka, qui évalue les
+positions avec le moteur qu'on lui donne et s'arrête après un temps fixe par
+coup. `match/games.ts` joue les parties : chaque ouverture de 4 coups est tirée
+de la politique du réseau, puis jouée deux fois en échangeant les couleurs.
+
+- `pnpm match` lance le match en Node, sur plusieurs threads
+  (`--first`, `--second`, `--games`, `--time`, `--max-visits`, `--parallel`).
+  Les joueurs sont `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
+  (`policy` : le coup le mieux noté, sans recherche). Le résultat va dans
+  `bench/results/match-*.json`.
+- `demo/match.html`, servie par `pnpm demo`, lance le même match dans le
+  navigateur : une partie par Web Worker, un petit goban par partie, et les
+  statistiques mises à jour à chaque coup et à chaque résultat.
+
+Résultats en Node, 100 parties, 100 ms par coup (AMD Ryzen 7 8845HS) :
+
+| Match | Résultat du premier | Score [IC 95 %] | Elo [IC 95 %] | Visites par coup |
+|---|---|---|---|---|
+| Zig + recherche contre Moka + recherche | 93 V, 5 D, 2 N | 94,0 % [89,3 ; 98,7] | +478 [+369 ; +746] | 381 contre 15 |
+| Zig + recherche contre Moka, coup le mieux noté | 99 V, 1 D | 99,0 % [97,0 ; 100] | +798 [+607 ; ∞] | 381 contre 1 |
+| Moka + recherche contre Moka, coup le mieux noté | 71 V, 21 D, 8 N | 75,0 % [66,5 ; 83,5] | +191 [+119 ; +282] | 18 contre 1 |
+| Contrôle : 16 visites de chaque côté | 47 V, 47 D, 6 N | 50,0 % [40,2 ; 59,8] | +0 [−69 ; +69] | 16 contre 16 |
+
+Le contrôle montre que le banc ne favorise aucun côté. Ces Elo décrivent cette
+recherche simple (sans réutilisation de l'arbre ni lots) sur 50 ouvertures ;
+avec plus de temps par coup, l'écart devrait se réduire.
+
 ## Intégration
 
 Le point de départ est une page qui suit le

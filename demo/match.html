@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live engine match</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Live match: Zig against Moka, 9×9</h1>
+        <p>
+          Both players use the same network and the same search, at a fixed time per move. The only
+          difference is the engine that evaluates positions: the faster one searches more
+          positions in the same time. Each opening is played twice, colors swapped.
+        </p>
+        <p><a href="./index.html">Back to the playable demo</a></p>
+      </header>
+      <section class="match-panel">
+        <form id="match-form" class="match-form">
+          <label>
+            First player
+            <select id="first"></select>
+          </label>
+          <label>
+            Second player
+            <select id="second"></select>
+          </label>
+          <label>
+            Time per move (ms)
+            <input id="time" type="number" min="1" step="1" value="100" required />
+          </label>
+          <label>
+            Games (even)
+            <input id="games" type="number" min="2" step="2" value="100" required />
+          </label>
+          <label>
+            Games at once
+            <input id="parallel" type="number" min="1" step="1" value="4" required />
+          </label>
+          <button id="start" type="submit">Start</button>
+          <button id="stop" type="button" disabled>Stop</button>
+        </form>
+        <p id="status">Choose the players and start the match.</p>
+        <div class="summary">
+          <div><span>Games played</span><strong id="stat-games">–</strong></div>
+          <div><span id="label-record">Wins / losses / draws</span><strong id="stat-record">–</strong></div>
+          <div><span>Score</span><strong id="stat-score">–</strong><small id="stat-score-range"></small></div>
+          <div><span>Elo difference</span><strong id="stat-elo">–</strong><small id="stat-elo-range"></small></div>
+          <div><span id="label-first-visits">First player, visits per move</span><strong id="stat-first-visits">–</strong><small id="stat-first-ms"></small></div>
+          <div><span id="label-second-visits">Second player, visits per move</span><strong id="stat-second-visits">–</strong><small id="stat-second-ms"></small></div>
+          <div><span>Black wins</span><strong id="stat-black">–</strong></div>
+          <div><span>Average game length</span><strong id="stat-length">–</strong></div>
+        </div>
+        <div id="boards"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th id="label-color">First player plays</th>
+              <th>Opening</th>
+              <th>Moves</th>
+              <th>Score</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="results"></tbody>
+        </table>
+        <p class="note">
+          Each game runs in its own Web Worker, which loads both engines and runs the search on its
+          own thread. The score counts a draw as half a win. The Elo difference is derived from
+          the score; with few games its interval is wide. Running many games at once on a machine
+          with few cores slows both players equally, but lowers the visits per move.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="./dist/match.js"></script>
+  </body>
+</html>

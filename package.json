@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "bench": "zig build models wasm wasm-profile && pnpm build:js && node bench/run.mjs",
     "demo": "pnpm build && node bench/serve.mjs",
+    "match": "zig build models wasm && pnpm build:js && node match/dist/match.js",
     "check:all": "pnpm typecheck && pnpm gen && pnpm build && pnpm models:check && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
     "typecheck": "tsc --noEmit"
   },

@@ -31,6 +31,14 @@ const browserBundles = [
     entryPoints: [resolve("demo/demo.ts")],
     outfile: resolve("demo/dist/demo.js"),
   },
+  {
+    entryPoints: [resolve("demo/match.ts")],
+    outfile: resolve("demo/dist/match.js"),
+  },
+  {
+    entryPoints: [resolve("demo/match-worker.ts")],
+    outfile: resolve("demo/dist/match-worker.js"),
+  },
 ];
 
 const VENDOR_CONSTANTS_PATH = resolve("vendor/moka/src/constants.ts");
@@ -72,6 +80,10 @@ const nodeBundles = [
   {
     entryPoints: [resolve("oracle/generate-synthetic-model.ts")],
     outfile: resolve("oracle/dist/generate-synthetic-model.js"),
+  },
+  {
+    entryPoints: [resolve("match/match.ts")],
+    outfile: resolve("match/dist/match.js"),
   },
 ];
 

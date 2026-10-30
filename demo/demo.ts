@@ -1,12 +1,5 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
-import {
-  GO_BLACK_COLOR,
-  GO_BOARD_AREA,
-  GO_BOARD_SIZE,
-  GO_EMPTY_COLOR,
-  GO_PASS_MOVE,
-  GO_WHITE_COLOR,
-} from "../vendor/moka/src/constants.ts";
+import { GO_BLACK_COLOR, GO_PASS_MOVE } from "../vendor/moka/src/constants.ts";
 import {
   createGameState,
   encodeStudentFeatures,
@@ -17,6 +10,7 @@ import {
   removeDeadStones,
   selectHighestLegalMove,
 } from "../vendor/moka/src/game.ts";
+import { formatMove, formatScore, getColorName, renderGoban } from "./goban.ts";
 
 const MODEL = { manifestUrl: "/dist/go-model.json", weightsUrl: "/dist/go-model.bin" };
 const ZIG_WORKER_URL = "/dist/worker.js";
@@ -25,13 +19,6 @@ const MOKA_WORKER_URL = "/bench/dist/moka-worker.js";
 const HUMAN_COLOR = GO_BLACK_COLOR;
 const DEFAULT_AUTOPLAY_DELAY_MS = 150;
 const DISPLAYED_TIMING_COUNT = 12;
-
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const CELL_SIZE = 40;
-const BOARD_MARGIN = 30;
-const STONE_RADIUS = 18;
-const STAR_POINTS = [20, 24, 40, 56, 60];
-const COLUMN_LABELS = "ABCDEFGHJ";
 
 type PageState = "loading" | "human" | "thinking" | "over" | "error";
 
@@ -82,13 +69,6 @@ let timings: MoveTiming[] = [];
 let pageState: PageState = "loading";
 let gameNumber = 0;
 
-const getColorName = (color: number) => (color === GO_BLACK_COLOR ? "black" : "white");
-
-const formatMove = (move: number) =>
-  move === GO_PASS_MOVE
-    ? "pass"
-    : `${COLUMN_LABELS[move % GO_BOARD_SIZE]}${GO_BOARD_SIZE - Math.floor(move / GO_BOARD_SIZE)}`;
-
 const formatMs = (value: number) => value.toFixed(2);
 
 const getMedian = (values: number[]) => {
@@ -98,116 +78,14 @@ const getMedian = (values: number[]) => {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 };
 
-const createSvgElement = (name: string, attributes: Record<string, string | number>) => {
-  const element = document.createElementNS(SVG_NAMESPACE, name);
-
-  for (const [key, value] of Object.entries(attributes)) {
-    element.setAttribute(key, String(value));
-  }
-
-  return element;
-};
-
-const getPointCenter = (move: number) => ({
-  x: BOARD_MARGIN + (move % GO_BOARD_SIZE) * CELL_SIZE,
-  y: BOARD_MARGIN + Math.floor(move / GO_BOARD_SIZE) * CELL_SIZE,
-});
-
-const renderBoard = () => {
-  const size = 2 * BOARD_MARGIN + (GO_BOARD_SIZE - 1) * CELL_SIZE;
-  const lineEnd = BOARD_MARGIN + (GO_BOARD_SIZE - 1) * CELL_SIZE;
-
-  board.replaceChildren();
-  board.setAttribute("viewBox", `0 0 ${size} ${size}`);
-  board.append(
-    createSvgElement("rect", { width: size, height: size, rx: 6, fill: "var(--board)" }),
-  );
-
-  for (let index = 0; index < GO_BOARD_SIZE; index += 1) {
-    const offset = BOARD_MARGIN + index * CELL_SIZE;
-    const lineStyle = { stroke: "var(--line)", "stroke-width": 1 };
-
-    board.append(
-      createSvgElement("line", { x1: BOARD_MARGIN, y1: offset, x2: lineEnd, y2: offset, ...lineStyle }),
-      createSvgElement("line", { x1: offset, y1: BOARD_MARGIN, x2: offset, y2: lineEnd, ...lineStyle }),
-    );
-  }
-
-  for (let index = 0; index < GO_BOARD_SIZE; index += 1) {
-    const offset = BOARD_MARGIN + index * CELL_SIZE;
-    const labelStyle = {
-      fill: "var(--line)",
-      "font-size": 12,
-      "text-anchor": "middle",
-      "dominant-baseline": "central",
-    };
-    const columnLabel = COLUMN_LABELS[index];
-    const rowLabel = String(GO_BOARD_SIZE - index);
-
-    for (const [x, y, text] of [
-      [offset, BOARD_MARGIN / 2, columnLabel],
-      [offset, size - BOARD_MARGIN / 2, columnLabel],
-      [BOARD_MARGIN / 2, offset, rowLabel],
-      [size - BOARD_MARGIN / 2, offset, rowLabel],
-    ] as const) {
-      const label = createSvgElement("text", { x, y, ...labelStyle });
-
-      label.textContent = text;
-      board.append(label);
-    }
-  }
-
-  for (const move of STAR_POINTS) {
-    const { x, y } = getPointCenter(move);
-
-    board.append(createSvgElement("circle", { cx: x, cy: y, r: 3, fill: "var(--line)" }));
-  }
-
-  for (let move = 0; move < GO_BOARD_AREA; move += 1) {
-    const color = gameState.board[move];
-    const { x, y } = getPointCenter(move);
-
-    if (color !== GO_EMPTY_COLOR) {
-      const isBlack = color === GO_BLACK_COLOR;
-
-      board.append(
-        createSvgElement("circle", {
-          cx: x,
-          cy: y,
-          r: STONE_RADIUS,
-          fill: isBlack ? "#111" : "#f4f4f0",
-          stroke: "#111",
-          "stroke-width": 1,
-          opacity: deadMoves.includes(move) ? 0.35 : 1,
-          "data-stone": getColorName(color),
-        }),
-      );
-
-      if (move === lastMove) {
-        board.append(
-          createSvgElement("circle", {
-            cx: x,
-            cy: y,
-            r: 6,
-            fill: "none",
-            stroke: isBlack ? "#f4f4f0" : "#111",
-            "stroke-width": 2,
-          }),
-        );
-      }
-    }
-
-    board.append(
-      createSvgElement("circle", {
-        cx: x,
-        cy: y,
-        r: CELL_SIZE / 2,
-        fill: "transparent",
-        "data-move": move,
-      }),
-    );
-  }
-};
+const renderBoard = () =>
+  renderGoban(board, {
+    board: gameState.board,
+    lastMove,
+    deadMoves,
+    showCoordinates: true,
+    isInteractive: true,
+  });
 
 const renderTimings = () => {
   const zigTimes = timings.map((timing) => timing.zigMs);
@@ -260,14 +138,6 @@ const setPageState = (state: PageState, status: string) => {
   passButton.disabled = state !== "human";
   newGameButton.disabled = !isIdle;
   autoplayInput.disabled = state === "loading" || state === "error" || state === "over";
-};
-
-const formatScore = (score: number) => {
-  if (score === 0) {
-    return "Jigo";
-  }
-
-  return `${score > 0 ? "B" : "W"}+${Math.abs(score)}`;
 };
 
 const finishGame = () => {
