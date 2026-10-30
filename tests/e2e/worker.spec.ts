@@ -163,7 +163,7 @@ test("a strict CSP on worker.js blocks the compilation", async ({ page }) => {
   expect(await initializeThroughClient(page)).toBe(CSP_ERROR);
 });
 
-test("records whether a strict CSP on the page alone blocks the compilation", async ({ page }) => {
+test("a strict CSP on the page alone does not block the Worker compilation", async ({ page }) => {
   await openPage(page, "?csp=strict");
   const pageCompilation = await page.evaluate(async () => {
     try {
@@ -177,11 +177,5 @@ test("records whether a strict CSP on the page alone blocks the compilation", as
 
   expect(pageCompilation, "the strict CSP must apply to the page itself").toBe("blocked");
 
-  const outcome = await initializeThroughClient(page);
-
-  test.info().annotations.push({
-    type: "page-csp",
-    description: outcome === "ready" ? "not blocked" : `blocked: ${outcome}`,
-  });
-  expect(["ready", CSP_ERROR]).toContain(outcome);
+  expect(await initializeThroughClient(page)).toBe("ready");
 });

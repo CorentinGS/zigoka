@@ -30,6 +30,7 @@ Les versions de Zig, Node et pnpm sont fixées dans `mise.toml`.
 mise install
 pnpm install
 pnpm setup:browser   # installe Chromium pour Playwright
+pnpm oracle          # données de référence, générées avec le code de Moka
 pnpm build           # infer.wasm, infer-safe.wasm et les bundles JS
 ```
 
@@ -44,29 +45,46 @@ pnpm build           # infer.wasm, infer-safe.wasm et les bundles JS
 | `pnpm bench` | mesure Moka et ce moteur dans Chromium (`--verdict` calcule G4) |
 | `pnpm check:all` | enchaîne `gen`, `build`, `oracle`, `oracle:check`, `test` et `test:e2e` |
 
-`pnpm test` et `pnpm test:e2e` ont besoin des données de référence : lancez
-`pnpm oracle` une fois après l'installation.
+`pnpm test` et `pnpm test:e2e` ont besoin des données de référence. L'ordre
+compte : `pnpm build` copie dans `bench/dist/` les positions et les sorties
+attendues que lisent le banc et les tests e2e, et ne le fait que si
+`pnpm oracle` a déjà tourné.
 
 ## Intégration
 
 Le point de départ est une page qui suit le
 [README de Moka](vendor/moka/README.md#embed-moka-on-a-site). Servez
 `dist/worker.js` et `dist/infer.wasm` dans un même dossier, sur l'origine de la
-page, puis changez seulement l'URL du Worker :
+page, puis changez seulement l'URL du Worker. Voici l'exemple de Moka, où
+seule cette URL change :
 
 ```js
-import { GoModelWorkerClient } from "/moka/index.js";
+import {
+  GoModelWorkerClient,
+  createGameState,
+  encodeStudentFeatures,
+  getAutomaticallyDeadMoves,
+  getAreaScore,
+  playMove,
+  removeDeadStones,
+  selectHighestLegalMove,
+} from "/moka/index.js";
 
-const worker = new Worker("/go-network/worker.js", { type: "module" });
-const moka = new GoModelWorkerClient(worker);
+const mokaWorker = new Worker("/go-network/worker.js", {
+  type: "module",
+});
+const moka = new GoModelWorkerClient(mokaWorker);
 
 await moka.initialize({
   manifestUrl: "/moka/go-model.json",
   weightsUrl: "/moka/go-model.bin",
 });
 
-const inference = await moka.infer(encodeStudentFeatures(gameState));
+let gameState = createGameState();
 ```
+
+La suite (`moka.infer`, choix du coup, fin de partie) est celle du README de
+Moka, sans changement.
 
 `worker.js` charge `infer.wasm` depuis son propre dossier
 (`new URL("./infer.wasm", import.meta.url)`). Aucun type MIME particulier n'est
@@ -139,9 +157,11 @@ un `worker.js` existant refuse un autre `.bin`. Pour suivre de nouveaux poids :
     le commit et les empreintes de `vendor/moka/VENDORED.md` ;
 2.  `pnpm gen`, qui contrôle le manifeste et refuse un format non pris en
     charge (`int4`, échelles groupées, blocs standard) ;
-3.  `pnpm oracle`, `pnpm calibrate`, puis `pnpm test` et `pnpm test:e2e` ;
-4.  `pnpm build`, puis déployer ensemble `worker.js`, `infer.wasm` et les
-    nouveaux `go-model.json` et `go-model.bin`.
+3.  `pnpm oracle`, `pnpm calibrate`, puis `pnpm build`, qui copie les
+    nouvelles données et la nouvelle tolérance dans `bench/dist/` ;
+4.  `pnpm test` et `pnpm test:e2e` ;
+5.  déployer ensemble `worker.js`, `infer.wasm` et les nouveaux
+    `go-model.json` et `go-model.bin`.
 
 ## Support navigateur
 

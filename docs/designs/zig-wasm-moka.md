@@ -984,12 +984,15 @@ Trois critères ont été écartés au profit de l'aller-retour `infer` isolé :
 ### Future Improvements
 
 *   **Modèle mixte INT8/INT16 du site de Moka.** L'outil de build acceptera ses
-    tenseurs (G7). Il manque trois préconditions :
+    tenseurs (G7). Il manque quatre préconditions :
     1.  obtenir les poids (138 616 octets, sha256 `4a58dcfd…`) avec une licence
         qui permet de les réutiliser ;
     2.  disposer d'une référence pour la parité : le Worker du site, ou une
         extension INT16 de l'oracle validée sur l'export Python de Moka ;
-    3.  documenter le protocole de lots du site (`experiment-log.md:1674`).
+    3.  documenter le protocole de lots du site (`experiment-log.md:1674`) ;
+    4.  connaître le nom de format du manifeste mixte. `pnpm gen` n'accepte
+        que `million-go-int8` (`tools/gen_model_layout.zig:101`) et refusera
+        tout autre nom avant de lire les tenseurs.
 *   **Recherche dans le Worker.** Un design séparé couvrira :
     *   les règles dans `infer.wasm` ;
     *   un PUCT avec un arbre de taille fixe ;
@@ -1883,8 +1886,10 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
         *   sur la réponse de `worker.js` (`/e2e/index.html?worker-csp=strict`) :
             l'erreur CSP est attendue ;
         *   sur la page seulement (`/e2e/index.html?csp=strict`) : le test
-            enregistre si la compilation est bloquée. Ce résultat répond à la
-            question ouverte et fixe le texte du README.
+            vérifie d'abord que la page elle-même ne peut pas compiler de
+            WASM, puis exige que le Worker s'initialise. Ce résultat, mesuré
+            en S4, a répondu à la question ouverte et fixe le texte du
+            README : si Chromium change de comportement, le test échoue.
 
         Le cas « sans SIMD » n'est pas testé en e2e, car Chromium a toujours
         `simd128`. Il est couvert par le fichier 34.
