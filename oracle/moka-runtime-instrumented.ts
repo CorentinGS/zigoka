@@ -105,6 +105,7 @@ const convolve = (
   padding: number,
   weights: Float32Array,
   biases: Float32Array,
+  f32Accumulate: boolean,
 ) => {
   const outputs = new Float32Array(boardSize * boardSize * outputChannelCount);
 
@@ -133,7 +134,13 @@ const convolve = (
               inputChannelCount;
 
             for (let inputChannel = 0; inputChannel < inputChannelCount; inputChannel += 1) {
-              sum += inputs[inputOffset + inputChannel] * weights[weightOffset + inputChannel];
+              const product =
+                inputs[inputOffset + inputChannel] * weights[weightOffset + inputChannel];
+
+              sum =
+                f32Accumulate
+                  ? Math.fround(sum + Math.fround(product))
+                  : sum + product;
             }
           }
         }
@@ -170,13 +177,23 @@ const applyLinear = (
   return outputs;
 };
 
+interface GoModelRuntimeOptions {
+  f32Accumulate?: boolean;
+}
+
 class GoModelRuntime {
   private readonly manifest: GoModelManifest;
   private readonly tensors: Record<string, GoModelFloatTensor>;
+  private readonly f32Accumulate: boolean;
 
-  private constructor(manifest: GoModelManifest, tensors: Record<string, GoModelFloatTensor>) {
+  private constructor(
+    manifest: GoModelManifest,
+    tensors: Record<string, GoModelFloatTensor>,
+    f32Accumulate: boolean,
+  ) {
     this.manifest = manifest;
     this.tensors = tensors;
+    this.f32Accumulate = f32Accumulate;
   }
 
   static load = async (manifestUrl: string, weightsUrl: string) => {
@@ -199,7 +216,11 @@ class GoModelRuntime {
     return GoModelRuntime.create(manifest, weightsBuffer);
   };
 
-  static create = (manifest: GoModelManifest, weightsBuffer: ArrayBuffer) => {
+  static create = (
+    manifest: GoModelManifest,
+    weightsBuffer: ArrayBuffer,
+    options: GoModelRuntimeOptions = {},
+  ) => {
     if (!isSupportedManifest(manifest) || weightsBuffer.byteLength !== manifest.weightsBytes) {
       throw new Error("Unsupported or incomplete Go model.");
     }
@@ -273,7 +294,7 @@ class GoModelRuntime {
       tensors[name] = { data: values, shape: tensorManifest.shape };
     }
 
-    return new GoModelRuntime(manifest, tensors);
+    return new GoModelRuntime(manifest, tensors, options.f32Accumulate ?? false);
   };
 
   infer = (features: Float32Array): GoModelInference => {
@@ -297,6 +318,7 @@ class GoModelRuntime {
         GO_MODEL_KERNEL_RADIUS,
         tensor("stem.weight"),
         tensor("stem.bias"),
+        this.f32Accumulate,
       ),
     );
 
@@ -324,6 +346,7 @@ class GoModelRuntime {
               0,
               tensor(`${prefix}.reduce.weight`),
               tensor(`${prefix}.reduce.bias`),
+              this.f32Accumulate,
             ),
           )
         : trunkValues;
@@ -337,6 +360,7 @@ class GoModelRuntime {
           GO_MODEL_KERNEL_RADIUS,
           tensor(`${prefix}.first.weight`),
           tensor(`${prefix}.first.bias`),
+          this.f32Accumulate,
         ),
       );
       if (isGlobalResidualBlock) {
@@ -370,6 +394,7 @@ class GoModelRuntime {
         GO_MODEL_KERNEL_RADIUS,
         tensor(`${prefix}.second.weight`),
         tensor(`${prefix}.second.bias`),
+        this.f32Accumulate,
       );
       const residualValues = isNestedBlock
         ? convolve(
@@ -381,6 +406,7 @@ class GoModelRuntime {
             0,
             tensor(`${prefix}.expand.weight`),
             tensor(`${prefix}.expand.bias`),
+            this.f32Accumulate,
           )
         : secondBlockValues;
       trunkValues = addAndApplyRelu(trunkValues, residualValues);
@@ -396,6 +422,7 @@ class GoModelRuntime {
         0,
         tensor("policy.convolution.weight"),
         tensor("policy.convolution.bias"),
+        this.f32Accumulate,
       ),
     );
     const policyLogits = applyLinear(
@@ -414,6 +441,7 @@ class GoModelRuntime {
         0,
         tensor("value.convolution.weight"),
         tensor("value.convolution.bias"),
+        this.f32Accumulate,
       ),
     );
     const valueHidden = applyRelu(
@@ -435,6 +463,8 @@ class GoModelRuntime {
       value: Math.tanh(valueOutput[0]),
     };
   };
+
+  getDequantizedTensors = (): Record<string, GoModelFloatTensor> => this.tensors;
 }
 
 export { GoModelRuntime };
