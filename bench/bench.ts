@@ -231,9 +231,11 @@ const runBenchmark = async () => {
       inferenceDurationsMs.push(performance.now() - inferenceStartTime);
     }
 
-    const burst35Ms: number[] | null = [];
+    let burst35Ms: number[] | null = null;
 
     if (useWorker) {
+      const bursts: number[] = [];
+
       for (let burstIndex = 0; burstIndex < BURST_COUNT; burstIndex += 1) {
         const burstStartTime = performance.now();
 
@@ -241,8 +243,10 @@ const runBenchmark = async () => {
           await engine.infer(copyFeatures(positions, positionIndex));
         }
 
-        burst35Ms.push(performance.now() - burstStartTime);
+        bursts.push(performance.now() - burstStartTime);
       }
+
+      burst35Ms = bursts;
     }
 
     const meanMs =

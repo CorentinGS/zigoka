@@ -45,8 +45,10 @@ cb60cb98ed645642dd9e60773d07be41bb46cc5c7d1aca49bcc433259aab29fd  web/constants.
 `vendor/moka/src/` is included in the `tsconfig.json` program so that the
 global types of Moka (`GoGameState`, `GoModelManifest`, and the Worker message
 types) are available to the oracle and the benchmark. Moka's own code is not
-held to this repository's `strict` rules: the relevant compiler option is
-relaxed in `tsconfig.json` rather than patching vendored files.
+held to this repository's indexing rules: `noUncheckedIndexedAccess` is
+disabled in `tsconfig.json`, rather than patching the vendored files. The
+same applies to `oracle/moka-runtime-instrumented.ts`, which is a copy of
+Moka's runtime.
 
 ## Contents
 
