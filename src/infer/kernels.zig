@@ -128,8 +128,8 @@ fn scalarReference(
     }
 }
 
-fn expectSameAsScalar(comptime taps: usize, comptime inputs: usize, comptime outputs: usize, comptime store: Store) !void {
-    const Board = Geometry(9);
+fn expectSameAsScalar(comptime board_size: u16, comptime taps: usize, comptime inputs: usize, comptime outputs: usize, comptime store: Store) !void {
+    const Board = Geometry(board_size);
     var prng: std.Random.DefaultPrng = .init(taps * 1000 + inputs * 10 + outputs);
     const random = prng.random();
     var input: [(Board.AREA + 1) * inputs]f32 = undefined;
@@ -150,12 +150,14 @@ fn expectSameAsScalar(comptime taps: usize, comptime inputs: usize, comptime out
 }
 
 test "SIMD convolutions match the scalar order bit for bit" {
-    try expectSameAsScalar(9, 12, 32, .relu);
-    try expectSameAsScalar(9, 16, 16, .relu);
-    try expectSameAsScalar(1, 32, 16, .relu);
-    try expectSameAsScalar(1, 16, 32, .add_to_trunk_relu);
-    try expectSameAsScalar(1, 32, 4, .relu);
-    try expectSameAsScalar(1, 32, 2, .relu);
+    inline for ([_]u16{ 9, 19 }) |board_size| {
+        try expectSameAsScalar(board_size, 9, 12, 32, .relu);
+        try expectSameAsScalar(board_size, 9, 16, 16, .relu);
+        try expectSameAsScalar(board_size, 1, 32, 16, .relu);
+        try expectSameAsScalar(board_size, 1, 16, 32, .add_to_trunk_relu);
+        try expectSameAsScalar(board_size, 1, 32, 4, .relu);
+        try expectSameAsScalar(board_size, 1, 32, 2, .relu);
+    }
 }
 
 test "relu follows Math.max(0, x)" {

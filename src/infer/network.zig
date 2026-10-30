@@ -79,11 +79,19 @@ fn residualBlock(block: Block) void {
 
 /// Runs the network on position `k` of the batch. Returns false if an output is not finite.
 pub fn forward(k: usize) bool {
+    forwardTrunk(k);
+    return forwardHeads(k);
+}
+
+/// Runs the stem and the residual blocks on position `k`, leaving the result in `buffers.trunk`.
+pub fn forwardTrunk(k: usize) void {
     const input = buffers.input[k * buffers.INPUT_STRIDE ..][0..buffers.INPUT_STRIDE];
     kernels.convolve(Board, 9, config.input_planes, TRUNK, .relu, input, view(STEM.weight), view(STEM.bias), &buffers.trunk);
 
     for (BLOCKS) |block| residualBlock(block);
+}
 
+fn forwardHeads(k: usize) bool {
     const logits = buffers.policy_out[k * config.policy_moves ..][0..config.policy_moves];
     kernels.convolve(Board, 1, TRUNK, config.policy_channels, .relu, &buffers.trunk, view(POLICY_CONVOLUTION.weight), view(POLICY_CONVOLUTION.bias), &buffers.policy_features);
     dense.linear(buffers.POLICY_FEATURES, config.policy_moves, &buffers.policy_features, view(POLICY_LINEAR.weight), view(POLICY_LINEAR.bias), logits);

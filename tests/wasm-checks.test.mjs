@@ -9,6 +9,9 @@ const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
 const PUBLISHED_ARTIFACT = "infer.wasm";
+const PUBLISHED_MODEL_ID = "moka-9";
+const PUBLISHED_MEMORY_PAGES = 13;
+const DIST_FILES = ["go-model.bin", "go-model.json", "infer.wasm", "worker.js"];
 const GZIP_SIZE_CAP_BYTES = 32 * 1024;
 const GZIP_LEVEL = 9;
 const WASM_HEADER_BYTES = 8;
@@ -21,12 +24,16 @@ const MINIMUM_SIMD_PREFIX_COUNT = 128;
 
 const EXPECTED_EXPORTS = [
   "__stack_pointer",
+  "board_size",
   "expected_sha256_ptr",
+  "feature_count",
   "infer",
   "input_ptr",
+  "input_stride",
   "load_weights",
   "max_batch",
   "memory",
+  "policy_moves",
   "policy_ptr",
   "value_ptr",
   "weights_capacity",
@@ -95,45 +102,63 @@ const countSequence = (bytes, sequence) => {
   return count;
 };
 
-for (const artifact of ARTIFACTS) {
-  const bytes = fs.readFileSync(path.join(rootDirectory, "zig-out", "bin", artifact));
-  const sections = readSections(bytes);
+const modelIds = fs
+  .readdirSync(path.join(rootDirectory, "zig-out", "models"))
+  .filter((id) => fs.existsSync(path.join(rootDirectory, "zig-out", "models", id, "go-model.json")))
+  .sort();
 
-  test(`${artifact}: the code uses v128 instructions`, () => {
-    const code = sections.get(CODE_SECTION_ID);
+for (const id of modelIds) {
+  for (const artifact of ARTIFACTS) {
+    const label = `${id}/${artifact}`;
+    const bytes = fs.readFileSync(path.join(rootDirectory, "zig-out", id, artifact));
+    const sections = readSections(bytes);
 
-    assert.ok(
-      countSequence(code, [SIMD_PREFIX]) >= MINIMUM_SIMD_PREFIX_COUNT,
-      "too few 0xfd prefixes: simd128 is probably missing from the build",
-    );
-  });
+    test(`${label}: the code uses v128 instructions`, () => {
+      const code = sections.get(CODE_SECTION_ID);
 
-  test(`${artifact}: the memory is declared with initial == maximum`, () => {
-    const limits = readMemoryLimits(sections.get(MEMORY_SECTION_ID));
+      assert.ok(
+        countSequence(code, [SIMD_PREFIX]) >= MINIMUM_SIMD_PREFIX_COUNT,
+        "too few 0xfd prefixes: simd128 is probably missing from the build",
+      );
+    });
 
-    assert.equal(limits.count, 1);
-    assert.equal(limits.maximum, limits.initial);
-  });
+    test(`${label}: the memory is declared with initial == maximum`, () => {
+      const limits = readMemoryLimits(sections.get(MEMORY_SECTION_ID));
 
-  test(`${artifact}: the code has no memory.grow (G5)`, () => {
-    assert.equal(countSequence(sections.get(CODE_SECTION_ID), MEMORY_GROW), 0);
-  });
+      assert.equal(limits.count, 1);
+      assert.equal(limits.maximum, limits.initial);
 
-  test(`${artifact}: the exports are exactly those of the ABI`, () => {
-    const module = new WebAssembly.Module(bytes);
-    const exports = WebAssembly.Module.exports(module)
-      .map(({ name }) => name)
-      .sort();
+      if (id === PUBLISHED_MODEL_ID) {
+        assert.equal(limits.initial, PUBLISHED_MEMORY_PAGES);
+      }
+    });
 
-    assert.deepEqual(exports, EXPECTED_EXPORTS);
-    assert.deepEqual(WebAssembly.Module.imports(module), []);
-  });
+    test(`${label}: the code has no memory.grow (G5)`, () => {
+      assert.equal(countSequence(sections.get(CODE_SECTION_ID), MEMORY_GROW), 0);
+    });
+
+    test(`${label}: the exports are exactly those of the ABI`, () => {
+      const module = new WebAssembly.Module(bytes);
+      const exports = WebAssembly.Module.exports(module)
+        .map(({ name }) => name)
+        .sort();
+
+      assert.deepEqual(exports, EXPECTED_EXPORTS);
+      assert.deepEqual(WebAssembly.Module.imports(module), []);
+    });
+  }
 }
 
-test(`${PUBLISHED_ARTIFACT}: the gzip size stays under the cap`, (t) => {
-  const bytes = fs.readFileSync(path.join(rootDirectory, "zig-out", "bin", PUBLISHED_ARTIFACT));
+test(`${PUBLISHED_MODEL_ID}/${PUBLISHED_ARTIFACT}: the gzip size stays under the cap`, (t) => {
+  const bytes = fs.readFileSync(
+    path.join(rootDirectory, "zig-out", PUBLISHED_MODEL_ID, PUBLISHED_ARTIFACT),
+  );
   const gzipBytes = zlib.gzipSync(bytes, { level: GZIP_LEVEL }).length;
 
   t.diagnostic(`${bytes.length} bytes, ${gzipBytes} after gzip (cap ${GZIP_SIZE_CAP_BYTES})`);
   assert.ok(gzipBytes <= GZIP_SIZE_CAP_BYTES, `${gzipBytes} bytes after gzip`);
+});
+
+test("dist/ holds exactly the published files", () => {
+  assert.deepEqual(fs.readdirSync(path.join(rootDirectory, "dist")).sort(), DIST_FILES);
 });

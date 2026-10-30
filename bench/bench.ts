@@ -1,19 +1,14 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { createEngine } from "../js/engine.ts";
+import { findParityMismatch } from "./parity-rule.ts";
 
-const POSITION_COUNT = 100;
-const FEATURE_COUNT = 972;
-const MOVE_COUNT = 82;
+const DEFAULT_MODEL_ID = "moka-9";
 const WARMUP_COUNT = 10;
 const BURST_COUNT = 5;
 const BURST_SIZE = 35;
 
-const MANIFEST_URL = "/dist/go-model.json";
-const WEIGHTS_URL = "/dist/go-model.bin";
 const MOKA_WORKER_URL = "/bench/dist/moka-worker.js";
-const ZIG_WORKER_URL = "/dist/worker.js";
-const ZIG_WASM_URL = "/dist/infer.wasm";
 
 const P50_PERCENTILE = 0.5;
 const P95_PERCENTILE = 0.95;
@@ -28,10 +23,24 @@ type BenchResult = {
   iterations: number;
 };
 
-type BenchTolerance = {
-  logits: number;
-  value: number;
+type BenchInputs = {
+  modelId: string;
+  modelSha256: string;
+  boardSize: number;
+  featureCount: number;
+  moveCount: number;
+  positionCount: number;
 };
+
+type ModelUrls = {
+  directory: string;
+  manifest: string;
+  weights: string;
+  zigWasm: string;
+  zigWorker: string;
+};
+
+type InferenceResult = { policyLogits: Float32Array; value: number };
 
 type BenchFailure = {
   error: string;
@@ -39,7 +48,7 @@ type BenchFailure = {
 
 type BenchEngine = {
   initializationMs: number;
-  infer: (features: Float32Array) => Promise<{ policyLogits: Float32Array; value: number }>;
+  infer: (features: Float32Array) => Promise<InferenceResult>;
   dispose: () => void;
 };
 
@@ -69,15 +78,11 @@ const publish = (result: BenchResult | BenchFailure) => {
   }
 };
 
-const loadFloat32 = async (url: string): Promise<Float32Array> => {
-  const response = await fetch(url);
+const loadFloat32 = async (url: string): Promise<Float32Array> =>
+  new Float32Array(await fetchArrayBuffer(url));
 
-  if (!response.ok) {
-    throw new Error(`Unable to load ${url} (${response.status}).`);
-  }
-
-  return new Float32Array(await response.arrayBuffer());
-};
+const loadFloat64 = async (url: string): Promise<Float64Array> =>
+  new Float64Array(await fetchArrayBuffer(url));
 
 const loadJson = async <Content>(url: string): Promise<Content> => {
   const response = await fetch(url);
@@ -89,10 +94,26 @@ const loadJson = async <Content>(url: string): Promise<Content> => {
   return (await response.json()) as Content;
 };
 
-const copyFeatures = (positions: Float32Array, positionIndex: number): Float32Array => {
-  const start = positionIndex * FEATURE_COUNT;
+const getModelUrls = (modelId: string): ModelUrls => {
+  const directory = `/bench/dist/${modelId}`;
 
-  return positions.slice(start, start + FEATURE_COUNT);
+  return {
+    directory,
+    manifest: `${directory}/go-model.json`,
+    weights: `${directory}/go-model.bin`,
+    zigWasm: `${directory}/infer.wasm`,
+    zigWorker: `${directory}/worker.js`,
+  };
+};
+
+const copyFeatures = (
+  positions: Float32Array,
+  featureCount: number,
+  positionIndex: number,
+): Float32Array => {
+  const start = positionIndex * featureCount;
+
+  return positions.slice(start, start + featureCount);
 };
 
 const fetchArrayBuffer = async (url: string): Promise<ArrayBuffer> => {
@@ -105,13 +126,13 @@ const fetchArrayBuffer = async (url: string): Promise<ArrayBuffer> => {
   return response.arrayBuffer();
 };
 
-const createWorkerEngine = async (workerUrl: string): Promise<BenchEngine> => {
+const createWorkerEngine = async (workerUrl: string, urls: ModelUrls): Promise<BenchEngine> => {
   const client = new GoModelWorkerClient(new Worker(workerUrl, { type: "module" }));
   const initializationStartTime = performance.now();
 
   await client.initialize({
-    manifestUrl: MANIFEST_URL,
-    weightsUrl: WEIGHTS_URL,
+    manifestUrl: urls.manifest,
+    weightsUrl: urls.weights,
   });
 
   return {
@@ -121,10 +142,10 @@ const createWorkerEngine = async (workerUrl: string): Promise<BenchEngine> => {
   };
 };
 
-const createMainThreadEngine = async (): Promise<BenchEngine> => {
+const createMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
   const initializationStartTime = performance.now();
-  const manifest = await loadJson<GoModelManifest>(MANIFEST_URL);
-  const runtime = GoModelRuntime.create(manifest, await fetchArrayBuffer(WEIGHTS_URL));
+  const manifest = await loadJson<GoModelManifest>(urls.manifest);
+  const runtime = GoModelRuntime.create(manifest, await fetchArrayBuffer(urls.weights));
 
   return {
     initializationMs: performance.now() - initializationStartTime,
@@ -133,10 +154,10 @@ const createMainThreadEngine = async (): Promise<BenchEngine> => {
   };
 };
 
-const createZigMainThreadEngine = async (): Promise<BenchEngine> => {
+const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
   const initializationStartTime = performance.now();
-  const module = await WebAssembly.compile(await fetchArrayBuffer(ZIG_WASM_URL));
-  const engine = await createEngine(module, await fetchArrayBuffer(WEIGHTS_URL));
+  const module = await WebAssembly.compile(await fetchArrayBuffer(urls.zigWasm));
+  const engine = await createEngine(module, await fetchArrayBuffer(urls.weights));
 
   return {
     initializationMs: performance.now() - initializationStartTime,
@@ -145,19 +166,23 @@ const createZigMainThreadEngine = async (): Promise<BenchEngine> => {
   };
 };
 
-const createBenchEngine = (runtime: string, useWorker: boolean): Promise<BenchEngine> => {
+const createBenchEngine = (
+  runtime: string,
+  useWorker: boolean,
+  urls: ModelUrls,
+): Promise<BenchEngine> => {
   if (runtime === "moka") {
-    return useWorker ? createWorkerEngine(MOKA_WORKER_URL) : createMainThreadEngine();
+    return useWorker ? createWorkerEngine(MOKA_WORKER_URL, urls) : createMainThreadEngine(urls);
   }
 
   if (runtime === "zig") {
-    return useWorker ? createWorkerEngine(ZIG_WORKER_URL) : createZigMainThreadEngine();
+    return useWorker ? createWorkerEngine(urls.zigWorker, urls) : createZigMainThreadEngine(urls);
   }
 
   throw new Error(`Unknown runtime ${runtime}; expected moka or zig.`);
 };
 
-const assertFinite = (result: { policyLogits: Float32Array; value: number }): void => {
+const assertFinite = (result: InferenceResult): void => {
   for (const logit of result.policyLogits) {
     if (!Number.isFinite(logit)) {
       throw new Error("The engine returned a non-finite policy logit.");
@@ -169,34 +194,43 @@ const assertFinite = (result: { policyLogits: Float32Array; value: number }): vo
   }
 };
 
-const assertMatchesReference = (
-  result: { policyLogits: Float32Array; value: number },
-  positionIndex: number,
-  expected: Float32Array,
-  tolerance: BenchTolerance,
-): void => {
-  const logitsOffset = positionIndex * MOVE_COUNT;
-  const valueOffset = POSITION_COUNT * MOVE_COUNT;
+const assertMatchesReference = async (
+  runtime: string,
+  engine: BenchEngine,
+  positions: Float32Array,
+  inputs: BenchInputs,
+  urls: ModelUrls,
+): Promise<void> => {
+  const referenceName = runtime === "zig" ? "f32acc" : "normal";
+  const expectedLogits = await loadFloat32(`${urls.directory}/logits-${referenceName}.f32`);
+  const expectedValues = await loadFloat64(`${urls.directory}/value-${referenceName}.f64`);
+  const logits = new Float32Array(inputs.positionCount * inputs.moveCount);
+  const values = new Float64Array(inputs.positionCount);
 
-  for (let moveIndex = 0; moveIndex < MOVE_COUNT; moveIndex += 1) {
-    const difference = Math.abs(
-      (result.policyLogits[moveIndex] as number) - (expected[logitsOffset + moveIndex] as number),
-    );
+  for (let positionIndex = 0; positionIndex < inputs.positionCount; positionIndex += 1) {
+    const result = await engine.infer(copyFeatures(positions, inputs.featureCount, positionIndex));
 
-    if (difference > tolerance.logits) {
+    assertFinite(result);
+
+    if (result.policyLogits.length !== inputs.moveCount) {
       throw new Error(
-        `Position ${positionIndex}, move ${moveIndex}: logit differs by ${difference}, ` +
-          `beyond the tolerance of ${tolerance.logits}.`,
+        `Position ${positionIndex}: ${result.policyLogits.length} logits, ${inputs.moveCount} expected.`,
       );
     }
+
+    logits.set(result.policyLogits, positionIndex * inputs.moveCount);
+    values[positionIndex] = result.value;
   }
 
-  const valueDifference = Math.abs(result.value - (expected[valueOffset + positionIndex] as number));
+  const mismatch = findParityMismatch(logits, values, expectedLogits, expectedValues);
 
-  if (valueDifference > tolerance.value) {
+  if (mismatch) {
     throw new Error(
-      `Position ${positionIndex}: value differs by ${valueDifference}, ` +
-        `beyond the tolerance of ${tolerance.value}.`,
+      mismatch.kind === "logit"
+        ? `Position ${mismatch.position}, move ${mismatch.index}: the logit differs from ` +
+            `the ${referenceName} reference.`
+        : `Position ${mismatch.position}: the value differs from the ${referenceName} ` +
+            "reference by more than 2 ulp.",
     );
   }
 };
@@ -206,6 +240,7 @@ const runBenchmark = async () => {
   const runtime = parameters.get("runtime") ?? "moka";
   const useWorker = (parameters.get("worker") ?? "1") !== "0";
   const mode = parameters.get("mode") ?? "single";
+  const urls = getModelUrls(parameters.get("model") ?? DEFAULT_MODEL_ID);
 
   if (mode !== "single") {
     throw new Error(`The ${mode} mode is not implemented; only single is.`);
@@ -218,23 +253,23 @@ const runBenchmark = async () => {
     );
   }
 
-  const positions = await loadFloat32("/bench/dist/positions.f32");
-  const expected = await loadFloat32("/bench/dist/expected.f32");
-  const tolerance = await loadJson<BenchTolerance>("/bench/dist/tolerance.json");
+  const inputs = await loadJson<BenchInputs>(`${urls.directory}/bench-inputs.json`);
+  const positions = await loadFloat32(`${urls.directory}/positions.f32`);
+  const { featureCount, positionCount } = inputs;
 
-  if (positions.length < POSITION_COUNT * FEATURE_COUNT) {
+  if (positions.length < positionCount * featureCount) {
     throw new Error(
-      `The bench inputs hold ${positions.length} values, ${POSITION_COUNT * FEATURE_COUNT} expected.`,
+      `The bench inputs hold ${positions.length} values, ${positionCount * featureCount} expected.`,
     );
   }
 
-  const engine = await createBenchEngine(runtime, useWorker);
+  const engine = await createBenchEngine(runtime, useWorker, urls);
 
   try {
     const firstTenMs: number[] = [];
 
     for (let warmupIndex = 0; warmupIndex < WARMUP_COUNT; warmupIndex += 1) {
-      const features = copyFeatures(positions, warmupIndex);
+      const features = copyFeatures(positions, featureCount, warmupIndex);
       const inferenceStartTime = performance.now();
 
       const result = await engine.infer(features);
@@ -242,17 +277,12 @@ const runBenchmark = async () => {
       assertFinite(result);
     }
 
-    for (let positionIndex = 0; positionIndex < POSITION_COUNT; positionIndex += 1) {
-      const result = await engine.infer(copyFeatures(positions, positionIndex));
-
-      assertFinite(result);
-      assertMatchesReference(result, positionIndex, expected, tolerance);
-    }
+    await assertMatchesReference(runtime, engine, positions, inputs, urls);
 
     const inferenceDurationsMs: number[] = [];
 
-    for (let positionIndex = 0; positionIndex < POSITION_COUNT; positionIndex += 1) {
-      const features = copyFeatures(positions, positionIndex);
+    for (let positionIndex = 0; positionIndex < positionCount; positionIndex += 1) {
+      const features = copyFeatures(positions, featureCount, positionIndex);
       const inferenceStartTime = performance.now();
 
       const result = await engine.infer(features);
@@ -267,7 +297,7 @@ const runBenchmark = async () => {
 
       for (let burstIndex = 0; burstIndex < BURST_COUNT; burstIndex += 1) {
         const burstFeatures = Array.from({ length: BURST_SIZE }, (_, positionIndex) =>
-          copyFeatures(positions, positionIndex),
+          copyFeatures(positions, featureCount, positionIndex),
         );
         const burstResults: Awaited<ReturnType<BenchEngine["infer"]>>[] = [];
         const burstStartTime = performance.now();

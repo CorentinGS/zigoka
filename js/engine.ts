@@ -1,7 +1,5 @@
 import { getBufferSha256 } from "../vendor/moka/src/utils/get-buffer-sha256.ts";
 
-const FEATURE_COUNT = 972;
-const MOVE_COUNT = 82;
 const SHA256_BYTE_COUNT = 32;
 const SHA256_PREFIX_LENGTH = 8;
 
@@ -18,6 +16,10 @@ interface InferExports {
   policy_ptr: () => number;
   value_ptr: () => number;
   max_batch: () => number;
+  board_size: () => number;
+  feature_count: () => number;
+  policy_moves: () => number;
+  input_stride: () => number;
   infer: (count: number) => number;
 }
 
@@ -55,14 +57,15 @@ const createEngine = async (
   new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
   exports.load_weights();
 
-  const input = new Float32Array(memory, exports.input_ptr(), FEATURE_COUNT);
-  const policy = new Float32Array(memory, exports.policy_ptr(), MOVE_COUNT);
+  const featureCount = exports.feature_count();
+  const input = new Float32Array(memory, exports.input_ptr(), featureCount);
+  const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
   const value = new Float64Array(memory, exports.value_ptr(), 1);
 
   return {
     infer: (features: Float32Array) => {
-      if (features.length !== FEATURE_COUNT) {
-        throw new Error(`Input features must have ${FEATURE_COUNT} values.`);
+      if (features.length !== featureCount) {
+        throw new Error(`Input features must have ${featureCount} values.`);
       }
 
       input.set(features);

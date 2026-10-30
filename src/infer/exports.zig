@@ -47,6 +47,22 @@ export fn max_batch() u32 {
     return buffers.MAX_BATCH;
 }
 
+export fn board_size() u32 {
+    return model_layout.CONFIG.board_size;
+}
+
+export fn feature_count() u32 {
+    return buffers.Board.AREA * model_layout.CONFIG.input_planes;
+}
+
+export fn policy_moves() u32 {
+    return model_layout.CONFIG.policy_moves;
+}
+
+export fn input_stride() u32 {
+    return buffers.INPUT_STRIDE;
+}
+
 export fn infer(count: u32) Status {
     if (count < 1 or count > buffers.MAX_BATCH) return .bad_batch_count;
     if (!weights.loaded) return .weights_not_loaded;

@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { instantiate, runFixtureSet, sha256Hex } from "../tests/inference-harness.mjs";
+import {
+  getDimensions,
+  instantiate,
+  runFixtureSet,
+  sha256Hex,
+} from "../tests/inference-harness.mjs";
 
 const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
 const FIXTURE_SETS = ["calibration", "validation"];
 const MODEL_ID = "moka-9";
-const INPUT_PLANE_COUNT = 12;
 
 const readOption = (name) => {
   const index = process.argv.indexOf(name);
@@ -30,23 +34,11 @@ const readFixtureSet = (fixturesDirectory, name) => {
   };
 };
 
-const getDimensions = (fixtureSet, exports) => {
-  const featureCount = fixtureSet.features.length / fixtureSet.positions;
-  const boardArea = featureCount / INPUT_PLANE_COUNT;
-
-  return {
-    featureCount,
-    inputStride: (boardArea + 1) * INPUT_PLANE_COUNT,
-    moveCount: boardArea + 1,
-    maxBatch: exports.max_batch(),
-  };
-};
-
 const main = () => {
   const wasmDirectory = path.resolve(readOption("--wasm"));
   const fixturesDirectory = path.resolve(readOption("--fixtures"));
   const outputPath = path.resolve(readOption("--out"));
-  const weights = fs.readFileSync(path.resolve("vendor/moka/model/go-model.bin"));
+  const weights = fs.readFileSync(path.resolve(`zig-out/models/${MODEL_ID}/go-model.bin`));
   const engines = ARTIFACTS.map((artifact) => {
     const wasmModule = new WebAssembly.Module(fs.readFileSync(path.join(wasmDirectory, artifact)));
 
@@ -59,7 +51,7 @@ const main = () => {
     const outputs = {};
 
     for (const { artifact, exports } of engines) {
-      const results = runFixtureSet(exports, getDimensions(fixtureSet, exports), fixtureSet);
+      const results = runFixtureSet(exports, getDimensions(exports), fixtureSet);
 
       if (results.failedBatches.length > 0) {
         throw new Error(

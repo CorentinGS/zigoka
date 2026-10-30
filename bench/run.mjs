@@ -8,15 +8,42 @@ import { chromium } from "@playwright/test";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resultsDirectory = path.join(rootDirectory, "bench", "results");
-const baselinePath = path.join(resultsDirectory, "baseline-moka.json");
 
 const ROUND_COUNT = 5;
 const WORKER_VALUES = [1, 0];
 const DEFAULT_PORT = 4173;
 const G4_RATIO_THRESHOLD = 2;
 const BASELINE_DRIFT_PERCENT = 20;
+const DEFAULT_MODEL_ID = "moka-9";
 
 const readOption = (name) => process.argv.includes(name);
+
+const readValueOption = (name) => {
+  const index = process.argv.indexOf(name);
+
+  if (index === -1) {
+    return null;
+  }
+
+  if (index + 1 >= process.argv.length) {
+    throw new Error(`Missing value for option ${name}.`);
+  }
+
+  return process.argv[index + 1];
+};
+
+const readBenchInputs = (modelId) => {
+  const inputsPath = path.join(rootDirectory, "bench", "dist", modelId, "bench-inputs.json");
+
+  if (!fs.existsSync(inputsPath)) {
+    throw new Error(
+      `${path.relative(rootDirectory, inputsPath)} is missing. Run "pnpm oracle" and ` +
+        '"pnpm build" first.',
+    );
+  }
+
+  return JSON.parse(fs.readFileSync(inputsPath, "utf8"));
+};
 
 const readPort = () => {
   const portIndex = process.argv.indexOf("--port");
@@ -61,10 +88,10 @@ const median = (values) => {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 };
 
-const measure = async (page, port, runtime, worker) => {
+const measure = async (page, port, modelId, runtime, worker) => {
   const url =
     `http://127.0.0.1:${port}/bench/index.html` +
-    `?runtime=${runtime}&worker=${worker}&mode=single`;
+    `?model=${modelId}&runtime=${runtime}&worker=${worker}&mode=single`;
 
   await page.goto(url);
   await page.waitForFunction(() => window.__benchResult !== undefined, undefined, {
@@ -129,7 +156,7 @@ const printTable = (runs) => {
   }
 };
 
-const readBaselineMedian = () => {
+const readBaselineMedian = (baselinePath) => {
   if (!fs.existsSync(baselinePath)) {
     return null;
   }
@@ -143,6 +170,9 @@ const main = async () => {
   const isBaseline = readOption("--baseline");
   const isVerdict = readOption("--verdict");
   const port = readPort();
+  const modelId = readValueOption("--model") ?? DEFAULT_MODEL_ID;
+  const benchInputs = readBenchInputs(modelId);
+  const baselinePath = path.join(resultsDirectory, `baseline-${modelId}.json`);
   const runtimes = isBaseline ? ["moka"] : ["moka", "zig"];
 
   fs.mkdirSync(resultsDirectory, { recursive: true });
@@ -168,7 +198,7 @@ const main = async () => {
 
       for (const worker of WORKER_VALUES) {
         for (const runtime of orderedRuntimes) {
-          const result = await measure(page, port, runtime, worker);
+          const result = await measure(page, port, modelId, runtime, worker);
 
           runs.push({
             round,
@@ -189,6 +219,9 @@ const main = async () => {
     printTable(runs);
 
     const report = {
+      modelId,
+      modelSha256: benchInputs.modelSha256,
+      boardSize: benchInputs.boardSize,
       date: new Date().toISOString(),
       machine: {
         cpu: os.cpus()[0]?.model ?? "unknown",
@@ -209,7 +242,7 @@ const main = async () => {
 
       const ratio = mokaMedian / zigMedian;
       const passed = ratio >= G4_RATIO_THRESHOLD;
-      const baselineMedian = readBaselineMedian();
+      const baselineMedian = readBaselineMedian(baselinePath);
       const baselineDriftPercent =
         baselineMedian === null
           ? null

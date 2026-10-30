@@ -66,7 +66,10 @@ comptime {
     }
 }
 
+const build_options = @import("build_options");
+
 test "buffer sizes follow the memory table" {
+    if (!std.mem.eql(u8, build_options.model_id, "moka-9")) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 113_648), weights_bin.len);
     try std.testing.expectEqual(@as(usize, 421_412), @sizeOf(@TypeOf(weights_f32)));
     try std.testing.expectEqual(@as(usize, 13_824), @sizeOf(@TypeOf(reorder_tmp)));

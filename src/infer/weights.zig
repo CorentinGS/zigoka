@@ -80,7 +80,7 @@ const go_model_bin = @embedFile("go_model_bin");
 fn readReferenceTensor(gpa: std.mem.Allocator, name: []const u8) ![]u8 {
     var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buffer, "{s}/tensors/{s}.f32", .{ build_options.fixtures_dir, name });
-    return std.Io.Dir.cwd().readFileAlloc(testing.io, path, gpa, .limited(1024 * 1024)) catch |err| {
+    return std.Io.Dir.cwd().readFileAlloc(testing.io, path, gpa, .limited(16 * 1024 * 1024)) catch |err| {
         std.debug.print("cannot read {s} ({t}); run `pnpm oracle` before `zig build test`\n", .{ path, err });
         return err;
     };

@@ -1,4 +1,10 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
+import { findParityMismatch, getUlpDistance } from "../bench/parity-rule.ts";
+
+export { findParityMismatch, getUlpDistance };
 
 export const STATUS_OK = 0;
 
@@ -19,6 +25,33 @@ export const instantiate = (wasmModule, weights, { loadWeights }) => {
   }
 
   return exports;
+};
+
+export const getDimensions = (exports) => ({
+  featureCount: exports.feature_count(),
+  inputStride: exports.input_stride(),
+  moveCount: exports.policy_moves(),
+  maxBatch: exports.max_batch(),
+});
+
+const copyBytes = (buffer) => new Uint8Array(buffer).buffer;
+
+export const readFixtureSet = (directory) => {
+  const read = (fileName) => copyBytes(fs.readFileSync(path.join(directory, fileName)));
+  const index = JSON.parse(fs.readFileSync(path.join(directory, "index.json"), "utf8"));
+
+  return {
+    name: path.basename(directory),
+    index,
+    positions: index.positions,
+    features: new Float32Array(read("features.f32")),
+    logitsNormal: new Float32Array(read("logits-normal.f32")),
+    logitsF32Accumulate: new Float32Array(read("logits-f32acc.f32")),
+    valueNormal: new Float64Array(read("value-normal.f64")),
+    valueF32Accumulate: new Float64Array(read("value-f32acc.f64")),
+    legal: new Uint8Array(read("legal.u8")),
+    chosenMove: new Uint16Array(read("chosen-move.u16")),
+  };
 };
 
 export const writeInputs = (exports, dimensions, features, start, count) => {
@@ -61,14 +94,6 @@ export const runFixtureSet = (exports, dimensions, fixtureSet) => {
   }
 
   return { logits, values, failedBatches };
-};
-
-export const getUlpDistance = (left, right) => {
-  const bits = new BigInt64Array(new Float64Array([left, right]).buffer);
-  const toOrdered = (value) => (value < 0n ? -(value & 0x7fff_ffff_ffff_ffffn) : value);
-  const distance = toOrdered(bits[0]) - toOrdered(bits[1]);
-
-  return distance < 0n ? -distance : distance;
 };
 
 export const selectHighestLegalMove = (logits, legal, moveCount) => {

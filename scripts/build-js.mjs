@@ -32,7 +32,7 @@ const browserBundles = [
 const nodeBundles = [
   {
     entryPoints: [resolve("oracle/generate-fixtures.ts")],
-    outfile: resolve("oracle/dist/generate.js"),
+    outfile: resolve("oracle/dist/generate-9.js"),
   },
   {
     entryPoints: [resolve("oracle/calibrate-tolerance.ts")],
@@ -64,80 +64,101 @@ const buildNodeBundle = async ({ entryPoints, outfile }) => {
   });
 };
 
-const copyModelFiles = () => {
-  const modelDirectory = resolve("vendor/moka/model");
-  const destinationDirectory = resolve("dist");
-
-  fs.mkdirSync(destinationDirectory, { recursive: true });
-
-  for (const entry of fs.readdirSync(modelDirectory)) {
-    fs.copyFileSync(path.join(modelDirectory, entry), path.join(destinationDirectory, entry));
-  }
-};
-
-const copyWasmArtifact = () => {
-  const wasmPath = resolve("zig-out/bin/infer.wasm");
-
-  if (!fs.existsSync(wasmPath)) {
-    return;
-  }
-
-  fs.mkdirSync(resolve("dist"), { recursive: true });
-  fs.copyFileSync(wasmPath, resolve("dist/infer.wasm"));
-};
-
+const PUBLISHED_MODEL_ID = "moka-9";
+const MODEL_FILES = ["go-model.json", "go-model.bin"];
 const BENCHMARK_POSITION_COUNT = 100;
-const BENCHMARK_PLANE_COUNT = 12;
-const BOARD_AREA = 81;
-const POLICY_MOVE_COUNT = 82;
-const FEATURE_COUNT = BOARD_AREA * BENCHMARK_PLANE_COUNT;
+const BENCHMARK_SETS = [
+  { fileName: "logits-normal.f32", bytesPerPosition: (index) => index.moveCount * 4 },
+  { fileName: "value-normal.f64", bytesPerPosition: () => 8 },
+  { fileName: "logits-f32acc.f32", bytesPerPosition: (index) => index.moveCount * 4 },
+  { fileName: "value-f32acc.f64", bytesPerPosition: () => 8 },
+];
 
-const copyTolerance = () => {
-  const tolerancePath = resolve("oracle/tolerance.json");
-
-  if (!fs.existsSync(tolerancePath)) {
+const copyIfPresent = (sourcePath, destinationPath) => {
+  if (!fs.existsSync(sourcePath)) {
     return;
   }
 
-  fs.mkdirSync(resolve("bench/dist"), { recursive: true });
-  fs.copyFileSync(tolerancePath, resolve("bench/dist/tolerance.json"));
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  fs.copyFileSync(sourcePath, destinationPath);
 };
 
-const writeBenchmarkInputs = () => {
-  const validationDirectory = resolve("oracle/fixtures/validation");
+const listModels = () => {
+  const modelsDirectory = resolve("zig-out/models");
 
-  if (!fs.existsSync(validationDirectory)) {
+  if (!fs.existsSync(modelsDirectory)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(modelsDirectory)
+    .filter((id) => fs.existsSync(path.join(modelsDirectory, id, "go-model.json")))
+    .sort();
+};
+
+const copyModelFiles = (id, destinationDirectory) => {
+  for (const fileName of MODEL_FILES) {
+    copyIfPresent(
+      resolve(`zig-out/models/${id}/${fileName}`),
+      path.join(destinationDirectory, fileName),
+    );
+  }
+};
+
+const copyPublishedFiles = () => {
+  copyModelFiles(PUBLISHED_MODEL_ID, resolve("dist"));
+  copyIfPresent(resolve(`zig-out/${PUBLISHED_MODEL_ID}/infer.wasm`), resolve("dist/infer.wasm"));
+};
+
+const writeBenchmarkInputs = (id) => {
+  const validationDirectory = resolve(`oracle/fixtures/${id}/validation`);
+
+  if (!fs.existsSync(path.join(validationDirectory, "index.json"))) {
     return;
   }
 
   const index = JSON.parse(fs.readFileSync(path.join(validationDirectory, "index.json"), "utf8"));
-  const positionCount = Math.min(BENCHMARK_POSITION_COUNT, index.positions);
 
-  if (positionCount === 0) {
-    throw new Error("The validation fixture set holds no position.");
+  if (index.positions < BENCHMARK_POSITION_COUNT) {
+    throw new Error(
+      `The validation set of ${id} holds ${index.positions} positions; the bench needs ` +
+        `${BENCHMARK_POSITION_COUNT}.`,
+    );
   }
 
-  const features = fs.readFileSync(path.join(validationDirectory, "features.f32"));
-  const logits = fs.readFileSync(path.join(validationDirectory, "logits-normal.f32"));
-  const values = fs.readFileSync(path.join(validationDirectory, "value-normal.f64"));
+  const benchDirectory = resolve(`bench/dist/${id}`);
+  const subset = (fileName, bytesPerPosition) =>
+    fs
+      .readFileSync(path.join(validationDirectory, fileName))
+      .subarray(0, BENCHMARK_POSITION_COUNT * bytesPerPosition);
 
-  const positions = Buffer.alloc(positionCount * FEATURE_COUNT * 4);
-  positions.set(
-    features.subarray(0, positionCount * FEATURE_COUNT * 4),
-    0,
+  fs.mkdirSync(benchDirectory, { recursive: true });
+  fs.writeFileSync(
+    path.join(benchDirectory, "positions.f32"),
+    subset("features.f32", index.featureCount * 4),
   );
 
-  const expected = Buffer.alloc(positionCount * (POLICY_MOVE_COUNT + 1) * 4);
-  expected.set(logits.subarray(0, positionCount * POLICY_MOVE_COUNT * 4), 0);
-
-  for (let positionIndex = 0; positionIndex < positionCount; positionIndex += 1) {
-    const value = values.readDoubleLE(positionIndex * 8);
-    expected.writeFloatLE(value, (positionCount * POLICY_MOVE_COUNT + positionIndex) * 4);
+  for (const { fileName, bytesPerPosition } of BENCHMARK_SETS) {
+    fs.writeFileSync(path.join(benchDirectory, fileName), subset(fileName, bytesPerPosition(index)));
   }
 
-  fs.mkdirSync(resolve("bench/dist"), { recursive: true });
-  fs.writeFileSync(resolve("bench/dist/positions.f32"), positions);
-  fs.writeFileSync(resolve("bench/dist/expected.f32"), expected);
+  const inputs = {
+    modelId: index.modelId,
+    modelSha256: index.modelSha256,
+    boardSize: index.boardSize,
+    featureCount: index.featureCount,
+    moveCount: index.moveCount,
+    positionCount: BENCHMARK_POSITION_COUNT,
+  };
+
+  fs.writeFileSync(
+    path.join(benchDirectory, "bench-inputs.json"),
+    `${JSON.stringify(inputs, null, 2)}\n`,
+    "utf8",
+  );
+  copyModelFiles(id, benchDirectory);
+  copyIfPresent(resolve(`zig-out/${id}/infer.wasm`), path.join(benchDirectory, "infer.wasm"));
+  copyIfPresent(resolve("dist/worker.js"), path.join(benchDirectory, "worker.js"));
 };
 
 const main = async () => {
@@ -149,10 +170,11 @@ const main = async () => {
     await buildNodeBundle(bundle);
   }
 
-  copyModelFiles();
-  copyWasmArtifact();
-  copyTolerance();
-  writeBenchmarkInputs();
+  copyPublishedFiles();
+
+  for (const id of listModels()) {
+    writeBenchmarkInputs(id);
+  }
 };
 
 await main();

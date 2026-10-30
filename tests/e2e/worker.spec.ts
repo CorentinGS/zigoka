@@ -1,5 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { findParityMismatch } from "../../bench/parity-rule.ts";
 import type { WorkerReply } from "./page.ts";
+
+const benchDirectory = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "bench",
+  "dist",
+  "moka-9",
+);
 
 const FEATURE_COUNT = 972;
 const MOVE_COUNT = 82;
@@ -70,61 +83,56 @@ const expectError = (reply: WorkerReply, message: string) => {
   expect(reply.type === "error" ? reply.error : null).toBe(message);
 };
 
-test("the nominal case matches Moka within the G3 tolerance on 10 positions", async ({ page }) => {
+const readReference = <Values extends Float32Array | Float64Array>(
+  fileName: string,
+  create: (buffer: ArrayBuffer) => Values,
+): Values => create(new Uint8Array(fs.readFileSync(path.join(benchDirectory, fileName))).buffer);
+
+test("the nominal case follows the parity rule against f32Accumulate on 10 positions", async ({
+  page,
+}) => {
   await openPage(page);
   expect(await initializeThroughClient(page)).toBe("ready");
 
   const results = await page.evaluate(
-    async ({ positionCount, featureCount, moveCount }) => {
+    async ({ positionCount, featureCount }) => {
       const e2e = window.e2e!;
-      const positions = await e2e.fetchFloat32("/bench/dist/positions.f32");
-      const expected = await e2e.fetchFloat32("/bench/dist/expected.f32");
-      const tolerance = (await (await fetch("/bench/dist/tolerance.json")).json()) as {
-        logits: number;
-        value: number;
-      };
-      const benchPositionCount = positions.length / featureCount;
+      const positions = await e2e.fetchFloat32("/bench/dist/moka-9/positions.f32");
       const outcomes = [];
 
       for (let position = 0; position < positionCount; position += 1) {
         const features = positions.slice(position * featureCount, (position + 1) * featureCount);
         const result = await e2e.client.infer(features);
-        let maxLogitDifference = 0;
-
-        for (let move = 0; move < moveCount; move += 1) {
-          maxLogitDifference = Math.max(
-            maxLogitDifference,
-            Math.abs(result.policyLogits[move] - expected[position * moveCount + move]),
-          );
-        }
 
         outcomes.push({
           isFloat32Array: result.policyLogits instanceof Float32Array,
-          logitCount: result.policyLogits.length,
-          isValueFinite: Number.isFinite(result.value),
-          isWithinLogitTolerance: maxLogitDifference <= tolerance.logits,
-          isWithinValueTolerance:
-            Math.abs(result.value - expected[benchPositionCount * moveCount + position]) <=
-            tolerance.value,
+          policyLogits: Array.from(result.policyLogits),
+          value: result.value,
         });
       }
 
       return outcomes;
     },
-    { positionCount: NOMINAL_POSITION_COUNT, featureCount: FEATURE_COUNT, moveCount: MOVE_COUNT },
+    { positionCount: NOMINAL_POSITION_COUNT, featureCount: FEATURE_COUNT },
   );
 
   expect(results).toHaveLength(NOMINAL_POSITION_COUNT);
 
   for (const result of results) {
-    expect(result).toEqual({
-      isFloat32Array: true,
-      logitCount: MOVE_COUNT,
-      isValueFinite: true,
-      isWithinLogitTolerance: true,
-      isWithinValueTolerance: true,
-    });
+    expect(result.isFloat32Array).toBe(true);
+    expect(result.policyLogits).toHaveLength(MOVE_COUNT);
   }
+
+  const expectedLogits = readReference("logits-f32acc.f32", (buffer) => new Float32Array(buffer));
+  const expectedValues = readReference("value-f32acc.f64", (buffer) => new Float64Array(buffer));
+  const mismatch = findParityMismatch(
+    Float32Array.from(results.flatMap((result) => result.policyLogits)),
+    Float64Array.from(results.map((result) => result.value)),
+    expectedLogits.subarray(0, NOMINAL_POSITION_COUNT * MOVE_COUNT),
+    expectedValues.subarray(0, NOMINAL_POSITION_COUNT),
+  );
+
+  expect(mismatch).toBeNull();
 });
 
 test("weights modified by one byte are refused", async ({ page }) => {

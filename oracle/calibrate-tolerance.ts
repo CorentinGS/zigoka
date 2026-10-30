@@ -4,10 +4,15 @@ import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(scriptDirectory, "..", "..");
-const calibrationDirectory = path.join(rootDirectory, "oracle", "fixtures", "calibration");
+const calibrationDirectory = path.join(
+  rootDirectory,
+  "oracle",
+  "fixtures",
+  "moka-9",
+  "calibration",
+);
 const tolerancePath = path.join(rootDirectory, "oracle", "tolerance.json");
 
-const MOVE_COUNT = 82;
 const LOGITS_CAP = 2e-3;
 const VALUE_CAP = 1e-3;
 const TOLERANCE_FACTOR = 4;
@@ -31,11 +36,15 @@ const main = (): void => {
   const indexPath = path.join(calibrationDirectory, "index.json");
 
   if (!fs.existsSync(indexPath)) {
-    fail("oracle/fixtures/calibration is missing. Run \"pnpm oracle\" first.");
+    fail("oracle/fixtures/moka-9/calibration is missing. Run \"pnpm oracle\" first.");
   }
 
-  const index = JSON.parse(fs.readFileSync(indexPath, "utf8")) as { positions: number };
+  const index = JSON.parse(fs.readFileSync(indexPath, "utf8")) as {
+    positions: number;
+    moveCount: number;
+  };
   const positionCount = index.positions;
+  const moveCount = index.moveCount;
 
   const logitsNormal = readFloat32(path.join(calibrationDirectory, "logits-normal.f32"));
   const logitsF32Accumulate = readFloat32(path.join(calibrationDirectory, "logits-f32acc.f32"));
@@ -43,8 +52,8 @@ const main = (): void => {
   const valueF32Accumulate = readFloat64(path.join(calibrationDirectory, "value-f32acc.f64"));
 
   if (
-    logitsNormal.length !== positionCount * MOVE_COUNT ||
-    logitsF32Accumulate.length !== positionCount * MOVE_COUNT ||
+    logitsNormal.length !== positionCount * moveCount ||
+    logitsF32Accumulate.length !== positionCount * moveCount ||
     valueNormal.length !== positionCount ||
     valueF32Accumulate.length !== positionCount
   ) {
@@ -94,8 +103,7 @@ const main = (): void => {
     fail(
       `Measured drift: logits ${maxLogitDifference.toExponential(3)}, value ` +
         `${maxValueDifference.toExponential(3)}. The calibrated tolerance exceeds the caps, ` +
-        "so oracle/tolerance.json is left unchanged. The project stops here, before any Zig " +
-        "code is written, and the design has to be revisited.",
+        "so oracle/tolerance.json is left unchanged and G3 has to be revisited.",
     );
   }
 

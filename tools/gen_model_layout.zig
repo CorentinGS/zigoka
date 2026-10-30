@@ -86,6 +86,8 @@ pub const Error = error{
     UnsupportedQuantizationGroup,
     MissingScale,
     OutOfBounds,
+    MisalignedTensor,
+    PolicyMoveCountMismatch,
     UnexpectedTensor,
     MissingTensor,
     ShapeMismatch,
@@ -228,6 +230,10 @@ fn parseConfig(arena: Allocator, diagnostic: *Diagnostic, architecture: json.Obj
     if ((config.global_block_interval == 0) != (config.global_hidden_channels == 0)) {
         return fail(arena, diagnostic, error.InvalidArchitecture, "globalResidualBlockInterval and globalResidualHiddenChannelCount must both be zero or both be positive", .{});
     }
+    const expected_policy_moves = @as(u32, config.board_size) * config.board_size + 1;
+    if (config.policy_moves != expected_policy_moves) {
+        return fail(arena, diagnostic, error.PolicyMoveCountMismatch, "architecture.policyMoveCount must be boardSize^2 + 1 = {d}, found {d}", .{ expected_policy_moves, config.policy_moves });
+    }
     return config;
 }
 
@@ -308,12 +314,18 @@ pub fn analyze(arena: Allocator, manifest: json.Value, weights: []const u8, diag
         if (data_offset + data_bytes > weights_bytes) {
             return fail(arena, diagnostic, error.OutOfBounds, "tensor {s} data ends past weightsBytes", .{want.name});
         }
+        if (kind == .float32 and data_offset % 4 != 0) {
+            return fail(arena, diagnostic, error.MisalignedTensor, "tensor {s} dataOffset {d} is not a multiple of 4", .{ want.name, data_offset });
+        }
         var scale_offset: ?u32 = null;
         if (isQuantized(kind)) {
             const offset = getU32(getField(tensor, "scaleOffset")) orelse
                 return fail(arena, diagnostic, error.InvalidManifest, "tensor {s} has no valid scaleOffset", .{want.name});
             if (offset + @as(u64, want.shape[0]) * 4 > weights_bytes) {
                 return fail(arena, diagnostic, error.OutOfBounds, "tensor {s} scales end past weightsBytes", .{want.name});
+            }
+            if (offset % 4 != 0) {
+                return fail(arena, diagnostic, error.MisalignedTensor, "tensor {s} scaleOffset {d} is not a multiple of 4", .{ want.name, offset });
             }
             scale_offset = offset;
         }
@@ -594,6 +606,30 @@ test "an offset past weightsBytes is rejected" {
     try expectRejected(error.OutOfBounds, struct {
         fn mutate(arena: Allocator, manifest: *json.Value) !void {
             try tensorObject(manifest, "value.output.bias").put(arena, "dataOffset", .{ .integer = 113_646 });
+        }
+    }.mutate);
+}
+
+test "a policyMoveCount other than boardSize^2 + 1 is rejected" {
+    try expectRejected(error.PolicyMoveCountMismatch, struct {
+        fn mutate(arena: Allocator, manifest: *json.Value) !void {
+            try manifest.object.getPtr("architecture").?.object.put(arena, "policyMoveCount", .{ .integer = 81 });
+        }
+    }.mutate);
+}
+
+test "a float32 dataOffset that is not a multiple of 4 is rejected" {
+    try expectRejected(error.MisalignedTensor, struct {
+        fn mutate(arena: Allocator, manifest: *json.Value) !void {
+            try tensorObject(manifest, "policy.linear.bias").put(arena, "dataOffset", .{ .integer = 107_762 });
+        }
+    }.mutate);
+}
+
+test "a scaleOffset that is not a multiple of 4 is rejected" {
+    try expectRejected(error.MisalignedTensor, struct {
+        fn mutate(arena: Allocator, manifest: *json.Value) !void {
+            try tensorObject(manifest, "policy.convolution.weight").put(arena, "scaleOffset", .{ .integer = 80_834 });
         }
     }.mutate);
 }
