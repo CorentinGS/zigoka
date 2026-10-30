@@ -1,0 +1,27 @@
+{
+  "name": "go-network",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Moteur d'inférence Zig/WASM sans allocation pour le modèle Moka 9×9",
+  "license": "MIT",
+  "scripts": {
+    "setup:browser": "playwright install chromium",
+    "build:js": "node scripts/build-js.mjs",
+    "gen": "zig build gen",
+    "build": "zig build wasm && pnpm build:js",
+    "oracle": "pnpm build:js && node oracle/dist/generate.js",
+    "oracle:check": "pnpm build:js && node oracle/dist/generate.js --check",
+    "calibrate": "pnpm build:js && node oracle/dist/calibrate.js",
+    "test": "zig build test && zig build wasm && node --test \"tests/*.test.mjs\" \"tests/*.test.ts\"",
+    "bench": "pnpm build:js && node bench/run.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "pnpm@12.15.0"
+}
