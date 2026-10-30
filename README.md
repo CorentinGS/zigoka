@@ -85,6 +85,7 @@ pnpm build           # infer.wasm, infer-safe.wasm et les bundles JS
 | `pnpm models:check` | vérifie que `models/synthetic-19/` se régénère à l'identique |
 | `pnpm test` | tests Zig, puis tests Node sur les deux builds WASM |
 | `pnpm test:e2e` | tests Playwright du Worker dans Chromium |
+| `pnpm demo` | construit puis sert la page de démo sur <http://127.0.0.1:4173/demo/index.html> |
 | `pnpm bench` | mesure Moka et ce moteur dans Chromium ; `--model <id>` choisit le modèle (`moka-9` par défaut), `--verdict` calcule G4 |
 | `pnpm check:all` | enchaîne `typecheck`, `gen`, `build`, `models:check`, `oracle`, `oracle:check`, `test` et `test:e2e` |
 
@@ -92,6 +93,23 @@ pnpm build           # infer.wasm, infer-safe.wasm et les bundles JS
 compte : `pnpm build` copie dans `bench/dist/` les positions et les sorties
 attendues que lisent le banc et les tests e2e, et ne le fait que si
 `pnpm oracle` a déjà tourné.
+
+## Démo
+
+`pnpm demo` sert une page où l'on joue noir en 9×9 contre ce moteur
+(`demo/`). Blanc joue le coup légal le mieux noté par le moteur Zig, chargé
+depuis `dist/` comme dans une intégration réelle. La page utilise les règles,
+l'encodage et le comptage de Moka (`vendor/moka/src/game.ts`). À chaque coup
+de blanc, elle envoie aussi la position au Worker de Moka, et affiche les deux
+temps d'aller-retour et si les deux moteurs choisissent le même coup. La case
+« Zig plays both sides » fait jouer le moteur des deux côtés jusqu'au
+comptage.
+
+Les temps de la page sont plus élevés que ceux du banc : chaque appel arrive
+après une attente, sur un Worker qui doit se réveiller, et les premiers appels
+comprennent la compilation JIT. Les chiffres de référence sont ceux de
+`pnpm bench`. La force de jeu est celle de Moka sans recherche : le moteur
+choisit le même coup que Moka, plus vite.
 
 ## Intégration
 

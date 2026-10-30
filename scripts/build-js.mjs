@@ -27,6 +27,10 @@ const browserBundles = [
     entryPoints: [resolve("tests/e2e/page.ts")],
     outfile: resolve("tests/e2e/dist/page.js"),
   },
+  {
+    entryPoints: [resolve("demo/demo.ts")],
+    outfile: resolve("demo/dist/demo.js"),
+  },
 ];
 
 const VENDOR_CONSTANTS_PATH = resolve("vendor/moka/src/constants.ts");

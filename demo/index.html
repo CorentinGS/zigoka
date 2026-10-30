@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zig engine demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --background: #f6f4ef;
+        --text: #1d1c1a;
+        --muted: #6b6760;
+        --panel: #ffffff;
+        --border: #d9d4ca;
+        --board: #dcb35c;
+        --line: #3b2f1a;
+        --good: #1f7a3a;
+        --bad: #b3261e;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --background: #181715;
+          --text: #ece9e3;
+          --muted: #a29d94;
+          --panel: #23211e;
+          --border: #3a3732;
+          --board: #c49a48;
+          --good: #6fcf8a;
+          --bad: #f28b82;
+        }
+      }
+
+      body {
+        margin: 0;
+        padding: 24px 16px;
+        background: var(--background);
+        color: var(--text);
+        font-family: system-ui, sans-serif;
+      }
+
+      main {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        max-width: 1040px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 1.4rem;
+      }
+
+      header {
+        flex-basis: 100%;
+      }
+
+      header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      #board {
+        width: 100%;
+        max-width: 420px;
+        height: auto;
+        touch-action: manipulation;
+      }
+
+      #board [data-move] {
+        cursor: pointer;
+      }
+
+      section {
+        flex: 1 1 360px;
+        min-width: 0;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 12px 0;
+      }
+
+      button {
+        font: inherit;
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      #status {
+        min-height: 1.5em;
+        font-weight: 600;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 8px;
+        margin: 12px 0;
+      }
+
+      .summary div {
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .summary span {
+        display: block;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      .summary strong {
+        font-size: 1.2rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+
+      th,
+      td {
+        padding: 4px 8px;
+        border-bottom: 1px solid var(--border);
+        text-align: right;
+      }
+
+      th:nth-child(2),
+      td:nth-child(2) {
+        text-align: left;
+      }
+
+      .same {
+        color: var(--good);
+      }
+
+      .different {
+        color: var(--bad);
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Zig/WASM engine for Moka 9×9</h1>
+        <p>
+          You play black. White plays the highest-rated legal move of the Zig engine. Each white
+          move is also evaluated by Moka's own Worker, on the same position, to compare.
+        </p>
+      </header>
+      <div>
+        <svg id="board" role="img" aria-label="Go board"></svg>
+        <div class="controls">
+          <button id="pass" type="button" disabled>Pass</button>
+          <button id="new-game" type="button" disabled>New game</button>
+          <label><input id="autoplay" type="checkbox" disabled /> Zig plays both sides</label>
+        </div>
+        <p id="status">Loading the engines…</p>
+      </div>
+      <section>
+        <div class="summary">
+          <div><span>Zig, median</span><strong id="zig-median">–</strong></div>
+          <div><span>Moka, median</span><strong id="moka-median">–</strong></div>
+          <div><span>Moka / Zig</span><strong id="ratio">–</strong></div>
+          <div><span>Same move</span><strong id="same-count">–</strong></div>
+        </div>
+        <p id="win-probability" class="note"></p>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Move</th>
+              <th>Zig ms</th>
+              <th>Moka ms</th>
+              <th>Same</th>
+            </tr>
+          </thead>
+          <tbody id="timings"></tbody>
+        </table>
+        <p id="initialization" class="note"></p>
+        <p class="note">
+          Times are the round trip of one <code>infer</code> call through each Web Worker,
+          measured in this page. They include JIT warm-up on the first calls, and the Worker
+          waking up after waiting for your move, so they are higher than in the bench
+          (<code>pnpm bench</code>), which times calls back to back and gives the reference
+          figures.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="./dist/demo.js"></script>
+  </body>
+</html>

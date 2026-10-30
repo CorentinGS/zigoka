@@ -35,6 +35,7 @@ const readPortArgument = () => {
 
 const SERVED_DIRECTORIES = new Map([
   ["bench", "bench"],
+  ["demo", "demo"],
   ["dist", "dist"],
   ["e2e", path.join("tests", "e2e")],
 ]);
@@ -109,7 +110,10 @@ const port = readPortArgument();
 const server = http.createServer(serve);
 
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`Serving the bench on http://127.0.0.1:${port}/bench/index.html\n`);
+  process.stdout.write(
+    `Serving the bench on http://127.0.0.1:${port}/bench/index.html ` +
+      `and the demo on http://127.0.0.1:${port}/demo/index.html\n`,
+  );
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

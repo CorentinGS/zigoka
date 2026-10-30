@@ -18,6 +18,7 @@
     "test": "zig build test && zig build models wasm wasm-safe wasm-profile && node --test \"tests/*.test.mjs\" \"tests/*.test.ts\"",
     "test:e2e": "playwright test",
     "bench": "zig build models wasm wasm-profile && pnpm build:js && node bench/run.mjs",
+    "demo": "pnpm build && node bench/serve.mjs",
     "check:all": "pnpm typecheck && pnpm gen && pnpm build && pnpm models:check && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
     "typecheck": "tsc --noEmit"
   },
