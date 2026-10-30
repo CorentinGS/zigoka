@@ -25,6 +25,7 @@ import {
   packFloat64,
   packUint16,
 } from "./fixture-files.ts";
+import { assertHealthy, createHealthCounter, type Health, type HealthCounter } from "./health.ts";
 import { GoModelRuntime as InstrumentedGoModelRuntime } from "./moka-runtime-instrumented.ts";
 import { createMulberry32 } from "./mulberry32.ts";
 
@@ -38,22 +39,37 @@ const FEATURE_COUNT = GO_BOARD_AREA * PLANE_COUNT;
 const MOVE_COUNT = GO_BOARD_AREA + 1;
 
 const FORMAT_VERSION = 2;
-const JOURNAL_PROBE_MODEL_ID = "moka-9";
+const TRAINED_MODEL_ID = "moka-9";
 const JOURNAL_PROBE_BLACK_MOVES = [20, 24, 56, 60];
+
+type ValidationPlan =
+  | { kind: "model"; seeds: number[]; randomMoveCount: number }
+  | { kind: "random"; seeds: number[]; moveLimit: number };
 
 type FixturePlan = {
   calibrationSeeds: number[];
-  validationSeeds: number[];
-  validationRandomMoveCount: number;
+  validation: ValidationPlan;
   smokeProbeMoves: number[];
 };
 
 const FIXTURE_PLANS: Record<number, FixturePlan> = {
   9: {
     calibrationSeeds: Array.from({ length: 50 }, (_, seedIndex) => seedIndex + 1),
-    validationSeeds: Array.from({ length: 20 }, (_, seedIndex) => seedIndex + 101),
-    validationRandomMoveCount: 6,
+    validation: {
+      kind: "model",
+      seeds: Array.from({ length: 20 }, (_, seedIndex) => seedIndex + 101),
+      randomMoveCount: 6,
+    },
     smokeProbeMoves: [20, 24, 56, 60],
+  },
+  19: {
+    calibrationSeeds: [],
+    validation: {
+      kind: "random",
+      seeds: Array.from({ length: 4 }, (_, seedIndex) => seedIndex + 101),
+      moveLimit: 60,
+    },
+    smokeProbeMoves: [60, 72, 288, 300],
   },
 };
 
@@ -96,6 +112,7 @@ type Runtimes = {
   normal: VendorGoModelRuntime;
   instrumentedNormal: InstrumentedGoModelRuntime;
   f32Accumulate: InstrumentedGoModelRuntime;
+  health: { counter: HealthCounter | null };
 };
 
 function fail(message: string): never {
@@ -149,12 +166,16 @@ const assertBoardSize = (model: Model): void => {
 };
 
 const createRuntimes = ({ manifest, weightsBuffer }: Model): Runtimes => {
+  const health: Runtimes["health"] = { counter: null };
+
   return {
     normal: VendorGoModelRuntime.create(manifest, weightsBuffer),
     instrumentedNormal: InstrumentedGoModelRuntime.create(manifest, weightsBuffer),
     f32Accumulate: InstrumentedGoModelRuntime.create(manifest, weightsBuffer, {
       f32Accumulate: true,
+      onTensor: (name, values) => health.counter?.observe(name, values),
     }),
+    health,
   };
 };
 
@@ -189,6 +210,12 @@ const recordPosition = (state: GoGameState, runtimes: Runtimes): Position => {
 
     legalMoves[move] = 1;
   }
+
+  runtimes.health.counter?.observeOutputs(
+    f32Accumulate.policyLogits,
+    f32Accumulate.value,
+    legalMoves,
+  );
 
   return {
     features,
@@ -245,19 +272,24 @@ const drawRandomMove = (state: GoGameState, random: () => number): number => {
   return candidates[Math.floor(random() * candidates.length)];
 };
 
-const playRandomGame = (seed: number, runtimes: Runtimes, dataset: Dataset): void => {
+const playRandomGame = (
+  seed: number,
+  moveLimit: number,
+  runtimes: Runtimes,
+  dataset: Dataset,
+): void => {
   const random = createMulberry32(seed);
   const start = dataset.positions.length;
   let state = createGameState();
 
-  while (!isGameOver(state)) {
+  while (!isGameOver(state) && dataset.positions.length - start < moveLimit) {
     dataset.positions.push(recordPosition(state, runtimes));
 
     const move = drawRandomMove(state, random);
     const nextState = playMove(state, move);
 
     if (!nextState) {
-      fail(`Calibration game ${seed}: move ${move} was drawn but is illegal.`);
+      fail(`Random game ${seed}: move ${move} was drawn but is illegal.`);
     }
 
     state = nextState;
@@ -372,7 +404,7 @@ const generateCalibrationDataset = (plan: FixturePlan, runtimes: Runtimes): Data
   const dataset: Dataset = { positions: [], games: [] };
 
   for (const seed of plan.calibrationSeeds) {
-    playRandomGame(seed, runtimes, dataset);
+    playRandomGame(seed, Infinity, runtimes, dataset);
   }
 
   return dataset;
@@ -385,11 +417,17 @@ const generateValidationDataset = (
 ): Dataset => {
   const dataset: Dataset = { positions: [], games: [] };
 
-  for (const seed of plan.validationSeeds) {
-    playMokaGame(seed, plan.validationRandomMoveCount, runtimes, dataset);
+  const { validation } = plan;
+
+  for (const seed of validation.seeds) {
+    if (validation.kind === "model") {
+      playMokaGame(seed, validation.randomMoveCount, runtimes, dataset);
+    } else {
+      playRandomGame(seed, validation.moveLimit, runtimes, dataset);
+    }
   }
 
-  if (model.id === JOURNAL_PROBE_MODEL_ID) {
+  if (model.id === TRAINED_MODEL_ID) {
     playJournalProbe(runtimes, dataset);
   }
 
@@ -398,7 +436,11 @@ const generateValidationDataset = (
   return dataset;
 };
 
-const datasetFiles = (header: DatasetHeader, dataset: Dataset): Map<string, Buffer> => {
+const datasetFiles = (
+  header: DatasetHeader,
+  dataset: Dataset,
+  health: Health,
+): Map<string, Buffer> => {
   const positionCount = dataset.positions.length;
   const features = new Float32Array(positionCount * FEATURE_COUNT);
   const logitsNormal = new Float32Array(positionCount * MOVE_COUNT);
@@ -443,6 +485,7 @@ const datasetFiles = (header: DatasetHeader, dataset: Dataset): Map<string, Buff
           boardSize: GO_BOARD_SIZE,
           featureCount: FEATURE_COUNT,
           moveCount: MOVE_COUNT,
+          health,
           positions: positionCount,
           games: dataset.games,
         },
@@ -557,7 +600,7 @@ const main = (): void => {
 
   const runtimes = createRuntimes(model);
 
-  if (model.id === JOURNAL_PROBE_MODEL_ID) {
+  if (model.id === TRAINED_MODEL_ID) {
     playJournalProbe(runtimes, { positions: [], games: [] });
   }
 
@@ -566,18 +609,33 @@ const main = (): void => {
 
   const header: DatasetHeader = { modelId: model.id, modelSha256: model.sha256 };
   const files = new Map<string, Map<string, Buffer>>();
+  const generateSet = (setName: string, gameCount: number, generate: () => Dataset) => {
+    process.stdout.write(`Generating the ${model.id} ${setName} set (${gameCount} games)...\n`);
+    runtimes.health.counter = createHealthCounter();
+    const dataset = generate();
+    const health = runtimes.health.counter.toJSON();
+    runtimes.health.counter = null;
+
+    if (model.id !== TRAINED_MODEL_ID) {
+      try {
+        assertHealthy(model.id, health);
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    files.set(setName, datasetFiles(header, dataset, health));
+  };
 
   if (plan.calibrationSeeds.length > 0) {
-    process.stdout.write(
-      `Generating the ${model.id} calibration set (${plan.calibrationSeeds.length} games)...\n`,
+    generateSet("calibration", plan.calibrationSeeds.length, () =>
+      generateCalibrationDataset(plan, runtimes),
     );
-    files.set("calibration", datasetFiles(header, generateCalibrationDataset(plan, runtimes)));
   }
 
-  process.stdout.write(
-    `Generating the ${model.id} validation set (${plan.validationSeeds.length} games)...\n`,
+  generateSet("validation", plan.validation.seeds.length, () =>
+    generateValidationDataset(model, plan, runtimes),
   );
-  files.set("validation", datasetFiles(header, generateValidationDataset(model, plan, runtimes)));
   files.set("tensors", tensorFiles(runtimes));
 
   const modelDirectory = path.join(fixturesDirectory, model.id);

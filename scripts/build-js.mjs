@@ -29,10 +29,37 @@ const browserBundles = [
   },
 ];
 
+const VENDOR_CONSTANTS_PATH = resolve("vendor/moka/src/constants.ts");
+const CONSTANTS_19_PATH = resolve("oracle/constants-19.ts");
+
+const substituteConstants19 = {
+  name: "substitute-constants-19",
+  setup: (pluginBuild) => {
+    pluginBuild.onResolve({ filter: /(^|\/)constants(\.ts)?$/ }, (args) => {
+      let candidate = path.resolve(args.resolveDir, args.path);
+
+      if (path.extname(candidate) === "") {
+        candidate += ".ts";
+      }
+
+      if (candidate === VENDOR_CONSTANTS_PATH && args.importer !== CONSTANTS_19_PATH) {
+        return { path: CONSTANTS_19_PATH };
+      }
+
+      return undefined;
+    });
+  },
+};
+
 const nodeBundles = [
   {
     entryPoints: [resolve("oracle/generate-fixtures.ts")],
     outfile: resolve("oracle/dist/generate-9.js"),
+  },
+  {
+    entryPoints: [resolve("oracle/generate-fixtures.ts")],
+    outfile: resolve("oracle/dist/generate-19.js"),
+    plugins: [substituteConstants19],
   },
   {
     entryPoints: [resolve("oracle/calibrate-tolerance.ts")],
@@ -56,7 +83,7 @@ const buildBundle = async ({ entryPoints, outfile }) => {
   });
 };
 
-const buildNodeBundle = async ({ entryPoints, outfile }) => {
+const buildNodeBundle = async ({ entryPoints, outfile, plugins = [] }) => {
   await build({
     bundle: true,
     entryPoints,
@@ -64,6 +91,7 @@ const buildNodeBundle = async ({ entryPoints, outfile }) => {
     logLevel: "warning",
     outfile,
     platform: "node",
+    plugins,
     target: NODE_TARGET,
   });
 };

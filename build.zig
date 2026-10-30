@@ -11,6 +11,7 @@ const Model = struct {
 
 const MODELS = [_]Model{
     .{ .id = "moka-9", .directory = "vendor/moka/model", .memory_pages = 13 },
+    .{ .id = "synthetic-19", .directory = "models/synthetic-19", .memory_pages = 66 },
 };
 
 const WasmTargets = struct {

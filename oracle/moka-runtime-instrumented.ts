@@ -177,24 +177,36 @@ const applyLinear = (
   return outputs;
 };
 
+type TensorObserver = (name: string, values: Float32Array) => void;
+
 interface GoModelRuntimeOptions {
   f32Accumulate?: boolean;
+  onTensor?: TensorObserver;
 }
 
 class GoModelRuntime {
   private readonly manifest: GoModelManifest;
   private readonly tensors: Record<string, GoModelFloatTensor>;
   private readonly f32Accumulate: boolean;
+  private readonly onTensor: TensorObserver | null;
 
   private constructor(
     manifest: GoModelManifest,
     tensors: Record<string, GoModelFloatTensor>,
     f32Accumulate: boolean,
+    onTensor: TensorObserver | null,
   ) {
     this.manifest = manifest;
     this.tensors = tensors;
     this.f32Accumulate = f32Accumulate;
+    this.onTensor = onTensor;
   }
+
+  private observe = (name: string, values: Float32Array) => {
+    this.onTensor?.(name, values);
+
+    return values;
+  };
 
   static load = async (manifestUrl: string, weightsUrl: string) => {
     const [manifestResponse, weightsResponse] = await Promise.all([
@@ -294,7 +306,12 @@ class GoModelRuntime {
       tensors[name] = { data: values, shape: tensorManifest.shape };
     }
 
-    return new GoModelRuntime(manifest, tensors, options.f32Accumulate ?? false);
+    return new GoModelRuntime(
+      manifest,
+      tensors,
+      options.f32Accumulate ?? false,
+      options.onTensor ?? null,
+    );
   };
 
   infer = (features: Float32Array): GoModelInference => {
@@ -308,17 +325,21 @@ class GoModelRuntime {
 
       return selectedTensor.data;
     };
-    let trunkValues = applyRelu(
-      convolve(
-        features,
-        architecture.boardSize,
-        architecture.inputPlaneCount,
-        architecture.trunkChannelCount,
-        GO_MODEL_KERNEL_SIZE,
-        GO_MODEL_KERNEL_RADIUS,
-        tensor("stem.weight"),
-        tensor("stem.bias"),
-        this.f32Accumulate,
+    const observe = this.observe;
+    let trunkValues = observe(
+      "stem",
+      applyRelu(
+        convolve(
+          features,
+          architecture.boardSize,
+          architecture.inputPlaneCount,
+          architecture.trunkChannelCount,
+          GO_MODEL_KERNEL_SIZE,
+          GO_MODEL_KERNEL_RADIUS,
+          tensor("stem.weight"),
+          tensor("stem.bias"),
+          this.f32Accumulate,
+        ),
       ),
     );
 
@@ -336,52 +357,63 @@ class GoModelRuntime {
         globalResidualBlockInterval > 0 &&
         (residualBlockIndex + 1) % globalResidualBlockInterval === 0;
       const firstBlockInputs = isNestedBlock
-        ? applyRelu(
-            convolve(
-              trunkValues,
-              architecture.boardSize,
-              architecture.trunkChannelCount,
-              bottleneckChannelCount,
-              GO_MODEL_POLICY_KERNEL_SIZE,
-              0,
-              tensor(`${prefix}.reduce.weight`),
-              tensor(`${prefix}.reduce.bias`),
-              this.f32Accumulate,
+        ? observe(
+            `${prefix}.reduce`,
+            applyRelu(
+              convolve(
+                trunkValues,
+                architecture.boardSize,
+                architecture.trunkChannelCount,
+                bottleneckChannelCount,
+                GO_MODEL_POLICY_KERNEL_SIZE,
+                0,
+                tensor(`${prefix}.reduce.weight`),
+                tensor(`${prefix}.reduce.bias`),
+                this.f32Accumulate,
+              ),
             ),
           )
         : trunkValues;
-      let hiddenValues = applyRelu(
-        convolve(
-          firstBlockInputs,
-          architecture.boardSize,
-          isNestedBlock ? bottleneckChannelCount : architecture.trunkChannelCount,
-          isNestedBlock ? bottleneckChannelCount : architecture.trunkChannelCount,
-          GO_MODEL_KERNEL_SIZE,
-          GO_MODEL_KERNEL_RADIUS,
-          tensor(`${prefix}.first.weight`),
-          tensor(`${prefix}.first.bias`),
-          this.f32Accumulate,
+      let hiddenValues = observe(
+        `${prefix}.first`,
+        applyRelu(
+          convolve(
+            firstBlockInputs,
+            architecture.boardSize,
+            isNestedBlock ? bottleneckChannelCount : architecture.trunkChannelCount,
+            isNestedBlock ? bottleneckChannelCount : architecture.trunkChannelCount,
+            GO_MODEL_KERNEL_SIZE,
+            GO_MODEL_KERNEL_RADIUS,
+            tensor(`${prefix}.first.weight`),
+            tensor(`${prefix}.first.bias`),
+            this.f32Accumulate,
+          ),
         ),
       );
       if (isGlobalResidualBlock) {
-        const globalValues = getSpatialMeanAndMaximumValues(
-          hiddenValues,
-          architecture.boardSize,
-          bottleneckChannelCount,
+        const globalValues = observe(
+          `${prefix}.global.pool`,
+          getSpatialMeanAndMaximumValues(hiddenValues, architecture.boardSize, bottleneckChannelCount),
         );
-        const globalHidden = applyRelu(
-          applyLinear(
-            globalValues,
-            architecture.globalResidualHiddenChannelCount ?? 0,
-            tensor(`${prefix}.global.hidden.weight`),
-            tensor(`${prefix}.global.hidden.bias`),
+        const globalHidden = observe(
+          `${prefix}.global.hidden`,
+          applyRelu(
+            applyLinear(
+              globalValues,
+              architecture.globalResidualHiddenChannelCount ?? 0,
+              tensor(`${prefix}.global.hidden.weight`),
+              tensor(`${prefix}.global.hidden.bias`),
+            ),
           ),
         );
-        const globalBias = applyLinear(
-          globalHidden,
-          bottleneckChannelCount,
-          tensor(`${prefix}.global.output.weight`),
-          tensor(`${prefix}.global.output.bias`),
+        const globalBias = observe(
+          `${prefix}.global.output`,
+          applyLinear(
+            globalHidden,
+            bottleneckChannelCount,
+            tensor(`${prefix}.global.output.weight`),
+            tensor(`${prefix}.global.output.bias`),
+          ),
         );
         hiddenValues = addChannelBias(hiddenValues, bottleneckChannelCount, globalBias);
       }
@@ -397,66 +429,79 @@ class GoModelRuntime {
         this.f32Accumulate,
       );
       const residualValues = isNestedBlock
-        ? convolve(
-            applyRelu(secondBlockValues),
-            architecture.boardSize,
-            bottleneckChannelCount,
-            architecture.trunkChannelCount,
-            GO_MODEL_POLICY_KERNEL_SIZE,
-            0,
-            tensor(`${prefix}.expand.weight`),
-            tensor(`${prefix}.expand.bias`),
-            this.f32Accumulate,
+        ? observe(
+            `${prefix}.expand`,
+            convolve(
+              observe(`${prefix}.second`, applyRelu(secondBlockValues)),
+              architecture.boardSize,
+              bottleneckChannelCount,
+              architecture.trunkChannelCount,
+              GO_MODEL_POLICY_KERNEL_SIZE,
+              0,
+              tensor(`${prefix}.expand.weight`),
+              tensor(`${prefix}.expand.bias`),
+              this.f32Accumulate,
+            ),
           )
         : secondBlockValues;
-      trunkValues = addAndApplyRelu(trunkValues, residualValues);
+      trunkValues = observe(`${prefix}.output`, addAndApplyRelu(trunkValues, residualValues));
     }
 
-    const policyValues = applyRelu(
-      convolve(
-        trunkValues,
-        architecture.boardSize,
-        architecture.trunkChannelCount,
-        architecture.policyChannelCount,
-        GO_MODEL_POLICY_KERNEL_SIZE,
-        0,
-        tensor("policy.convolution.weight"),
-        tensor("policy.convolution.bias"),
-        this.f32Accumulate,
+    const policyValues = observe(
+      "policy.convolution",
+      applyRelu(
+        convolve(
+          trunkValues,
+          architecture.boardSize,
+          architecture.trunkChannelCount,
+          architecture.policyChannelCount,
+          GO_MODEL_POLICY_KERNEL_SIZE,
+          0,
+          tensor("policy.convolution.weight"),
+          tensor("policy.convolution.bias"),
+          this.f32Accumulate,
+        ),
       ),
     );
-    const policyLogits = applyLinear(
-      policyValues,
-      architecture.policyMoveCount,
-      tensor("policy.linear.weight"),
-      tensor("policy.linear.bias"),
-    );
-    const valueValues = applyRelu(
-      convolve(
-        trunkValues,
-        architecture.boardSize,
-        architecture.trunkChannelCount,
-        architecture.valueChannelCount,
-        GO_MODEL_VALUE_KERNEL_SIZE,
-        0,
-        tensor("value.convolution.weight"),
-        tensor("value.convolution.bias"),
-        this.f32Accumulate,
-      ),
-    );
-    const valueHidden = applyRelu(
+    const policyLogits = observe(
+      "policy.linear",
       applyLinear(
-        valueValues,
-        architecture.scoreHiddenChannelCount,
-        tensor("value.hidden.weight"),
-        tensor("value.hidden.bias"),
+        policyValues,
+        architecture.policyMoveCount,
+        tensor("policy.linear.weight"),
+        tensor("policy.linear.bias"),
       ),
     );
-    const valueOutput = applyLinear(
-      valueHidden,
-      1,
-      tensor("value.output.weight"),
-      tensor("value.output.bias"),
+    const valueValues = observe(
+      "value.convolution",
+      applyRelu(
+        convolve(
+          trunkValues,
+          architecture.boardSize,
+          architecture.trunkChannelCount,
+          architecture.valueChannelCount,
+          GO_MODEL_VALUE_KERNEL_SIZE,
+          0,
+          tensor("value.convolution.weight"),
+          tensor("value.convolution.bias"),
+          this.f32Accumulate,
+        ),
+      ),
+    );
+    const valueHidden = observe(
+      "value.hidden",
+      applyRelu(
+        applyLinear(
+          valueValues,
+          architecture.scoreHiddenChannelCount,
+          tensor("value.hidden.weight"),
+          tensor("value.hidden.bias"),
+        ),
+      ),
+    );
+    const valueOutput = observe(
+      "value.output",
+      applyLinear(valueHidden, 1, tensor("value.output.weight"), tensor("value.output.bias")),
     );
     return {
       policyLogits,

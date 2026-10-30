@@ -299,6 +299,29 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
     *   contrôle de santé : les valeurs `health` du jeu de validation de
         chaque modèle ;
     *   durée de `pnpm check:all` et de chaque génération de l'oracle.
+
+    Relevé du 2026-10-30, sur un AMD Ryzen 7 8845HS, Node 24.22.1 :
+
+    | Jeu de validation | `moka-9` (1 481 positions) | `synthetic-19` (241 positions) |
+    | --- | --- | --- |
+    | `activationCount` | 166 205 225 | 120 371 065 |
+    | `nonFiniteCount` | 0 | 0 |
+    | `trunkSubnormalCount` | 0 | 0 |
+    | `headSubnormalCount` | 0 | 0 |
+    | `deadValueHiddenPositionCount` | 0 | 0 |
+    | `saturatedValueFraction` | 0,097 | 0 |
+    | `medianLegalLogitRange` | 9,31 | 49,0 |
+
+    *   `synthetic-19` passe le contrôle avec `POLICY_SCALE_FACTOR` et
+        `VALUE_SCALE_FACTOR` à 1. L'étendue médiane des logits légaux est
+        environ 5 fois celle de `moka-9` : c'est ce que prévoit la réserve
+        de « Hypothèse de l'échelle », puisque les entrées des têtes sont
+        positives. Le critère bloquant ne porte que sur une étendue nulle.
+    *   La parité de NX4 passe au premier essai : les outils D1 à D4 (F46)
+        ne sont pas créés, et le plugin de F31 suffit (F36 n'est pas créé).
+    *   Durées : génération de l'oracle `moka-9` 2 min 7 s, `synthetic-19`
+        19 s (contre 15 s estimées) ; `pnpm check:all` depuis un état sans
+        `zig-out/` ni données de référence, 4 min 35 s (3 min 43 s en J1).
 *   **J5 :** NX6. Pour `synthetic-19` et `moka-9` : les p50 de Moka et de
     Zig avec et sans Worker, le p50 du tronc, le rapport, la part des têtes,
     la machine, la version de Chromium et le sha256 de chaque modèle.
