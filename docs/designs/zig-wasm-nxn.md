@@ -451,6 +451,34 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
     *   Moka est 26 % plus rapide que `baseline-moka-9.json` dans ces deux
         sessions ; comme pour l'entrée précédente, seule la comparaison
         entre ces deux sessions vaut.
+*   **Convolutions par paires de positions** (après J5). Dans
+    `kernels.convolve`, les convolutions à 16 sorties au plus (les deux
+    3×3 16→16 et la 1×1 32→16 de chaque bloc, 82 % des opérations du
+    tronc pour les 3×3) calculent 2 positions à la fois : chaque vecteur de
+    poids lu sert aux deux. Chaque sortie garde l'ordre d'additions
+    précédent (tap, puis canal d'entrée), donc les sorties restent
+    identiques bit à bit ; la dernière position d'un plateau impair passe
+    par l'ancien chemin. Dans Node, 3 et 4 positions font moins bien que 2
+    (probablement des registres débordés par V8), et étendre les paires
+    aux convolutions à 32 sorties ne gagne rien.
+
+    Deux sessions consécutives, l'une avec le changement, l'autre sans
+    (fichiers `bench/results/2026-10-30T20-13-14-289Z.json` et
+    `2026-10-30T20-15-00-467Z.json`, non versionnés) :
+
+    | Médiane des p50 | 19×19 avant | 19×19 après | 9×9 avant | 9×9 après |
+    | --- | --- | --- | --- | --- |
+    | Moka, Worker | 26,230 ms | 26,215 ms | 5,670 ms | 5,655 ms |
+    | Zig, Worker | 1,420 ms | 1,130 ms | 0,325 ms | 0,265 ms |
+    | Zig, sans Worker | 1,360 ms | 1,080 ms | 0,295 ms | 0,230 ms |
+    | Zig, tronc seul | 1,260 ms | 0,985 ms | 0,285 ms | 0,225 ms |
+    | Rapport Moka / Zig | 18,47 | 23,20 | 17,45 | 21,34 |
+
+    *   Le tronc gagne 22 % en 19×19 et 21 % en 9×9 ; l'inférence via le
+        Worker gagne 20 % et 18 %.
+    *   L'`infer.wasm` de `moka-9` passe de 23,5 Ko (7,5 Ko après gzip) à
+        24,1 Ko (8,0 Ko), sous le plafond de 32 Kio. Les deux changements
+        des têtes l'avaient déjà fait passer de 19,2 Ko (6,7 Ko) à 23,5 Ko.
 
 ## Open Questions
 

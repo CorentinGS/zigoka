@@ -23,7 +23,7 @@ en N×N et la mesure en 19×19 sont décrits dans
     meilleur coup légal est toujours le même. Moka accumule en f64 et ce
     moteur en f32 ; les logits sont identiques bit à bit à ceux d'un Moka
     instrumenté pour accumuler en f32.
-*   **Taille** : l'`infer.wasm` de `moka-9` fait environ 19 Ko, et 6,7 Ko
+*   **Taille** : l'`infer.wasm` de `moka-9` fait environ 24 Ko, et 8,0 Ko
     après gzip.
 
 ## 19×19
@@ -42,8 +42,8 @@ session :
 
 | Modèle | Plateau | Moka | Ce moteur | Rapport | Tronc seul |
 | --- | --- | --- | --- | --- | --- |
-| `synthetic-19` | 19×19 | 26,245 ms | 1,415 ms | 18,55 | 1,260 ms |
-| `moka-9` | 9×9 | 5,665 ms | 0,335 ms | 16,91 | 0,285 ms |
+| `synthetic-19` | 19×19 | 26,215 ms | 1,130 ms | 23,20 | 0,985 ms |
+| `moka-9` | 9×9 | 5,655 ms | 0,265 ms | 21,34 | 0,225 ms |
 
 Le rapport est du même ordre sur les deux tailles. Le tronc suit la surface du
 plateau (×4,46). Les têtes pèsent plus en 19×19 : `policy.linear` y a 20 fois

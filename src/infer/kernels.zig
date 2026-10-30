@@ -58,6 +58,55 @@ inline fn accumulate(
     return acc;
 }
 
+/// Positions computed together by `accumulateBlock`, so that each weight vector serves all of them.
+fn positionBlock(comptime outputs: usize) usize {
+    return if (outputs % 4 == 0 and outputs <= POSITION_BLOCK_MAX_OUTPUTS) POSITION_BLOCK else 1;
+}
+
+const POSITION_BLOCK = 2;
+const POSITION_BLOCK_MAX_OUTPUTS = 16;
+
+inline fn accumulateBlock(
+    comptime positions: usize,
+    comptime taps: usize,
+    comptime inputs: usize,
+    comptime outputs: usize,
+    rows: [positions]*const [taps]u16,
+    input: []const f32,
+    weights: []const f32,
+    bias: []const f32,
+) [positions][outputs / 4]Lane {
+    var acc: [positions][outputs / 4]Lane = undefined;
+    inline for (0..positions) |p| {
+        inline for (0..outputs / 4) |lane| acc[p][lane] = bias[4 * lane ..][0..4].*;
+    }
+    for (0..taps) |tap| {
+        var x_rows: [positions]*const [inputs]f32 = undefined;
+        inline for (0..positions) |p| x_rows[p] = input[@as(usize, rows[p][tap]) * inputs ..][0..inputs];
+        const w_tap = weights[tap * inputs * outputs ..][0 .. inputs * outputs];
+        for (0..inputs) |channel| {
+            var xs: [positions]Lane = undefined;
+            inline for (0..positions) |p| xs[p] = @splat(x_rows[p][channel]);
+            const w = w_tap[channel * outputs ..][0..outputs];
+            inline for (0..outputs / 4) |lane| {
+                const w_lane: Lane = w[4 * lane ..][0..4].*;
+                inline for (0..positions) |p| acc[p][lane] = acc[p][lane] + xs[p] * w_lane;
+            }
+        }
+    }
+    return acc;
+}
+
+inline fn storeLanes(comptime outputs: usize, comptime store: Store, acc: [outputs / 4]Lane, out: *[outputs]f32) void {
+    inline for (0..outputs / 4) |lane| {
+        const target = out[4 * lane ..][0..4];
+        target.* = switch (store) {
+            .relu => reluLane(acc[lane]),
+            .add_to_trunk_relu => reluLane(@as(Lane, target.*) + acc[lane]),
+        };
+    }
+}
+
 /// Convolution over every intersection of `Board`, vectorized over output channels.
 /// `input` holds `Board.AREA + 1` rows when `taps == 9`; the last row is the zero sentinel.
 /// `weights` use the `[tap][in][out]` layout produced by `weights.reorder`.
@@ -75,18 +124,23 @@ pub fn convolve(
     comptime std.debug.assert(taps == 9 or taps == 1);
     std.debug.assert(weights.len == taps * inputs * outputs);
     std.debug.assert(output.len >= Board.AREA * outputs);
-    for (0..Board.AREA) |position| {
+    const block = comptime positionBlock(outputs);
+    const blocked = Board.AREA - Board.AREA % block;
+    var first: usize = 0;
+    if (comptime block > 1) {
+        while (first < blocked) : (first += block) {
+            var rows: [block]*const [taps]u16 = undefined;
+            inline for (0..block) |p| rows[p] = if (taps == 9) &Board.CONV_NEIGHBORS[first + p] else &.{@intCast(first + p)};
+            const acc = accumulateBlock(block, taps, inputs, outputs, rows, input, weights, bias);
+            inline for (0..block) |p| storeLanes(outputs, store, acc[p], output[(first + p) * outputs ..][0..outputs]);
+        }
+    }
+    for (first..Board.AREA) |position| {
         const rows: *const [taps]u16 = if (taps == 9) &Board.CONV_NEIGHBORS[position] else &.{@intCast(position)};
         const acc = accumulate(taps, inputs, outputs, rows, input, weights, bias);
         const out = output[position * outputs ..][0..outputs];
         if (comptime outputs % 4 == 0) {
-            inline for (0..outputs / 4) |lane| {
-                const target = out[4 * lane ..][0..4];
-                target.* = switch (store) {
-                    .relu => reluLane(acc[lane]),
-                    .add_to_trunk_relu => reluLane(@as(Lane, target.*) + acc[lane]),
-                };
-            }
+            storeLanes(outputs, store, acc, out);
         } else {
             inline for (0..outputs) |index| {
                 out[index] = switch (store) {
