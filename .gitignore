@@ -1,0 +1,17 @@
+# Build outputs
+zig-out/
+.zig-cache/
+dist/
+bench/dist/
+oracle/dist/
+tests/e2e/dist/
+
+# Dependencies
+node_modules/
+
+# Generated reference data
+oracle/fixtures/
+
+# Benchmark results: only the S0 baseline is versioned.
+bench/results/*.json
+!bench/results/baseline-*.json
