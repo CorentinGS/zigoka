@@ -7,7 +7,11 @@ import zlib from "node:zlib";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
+const ARTIFACTS = [
+  { name: "infer.wasm", extraExports: [] },
+  { name: "infer-safe.wasm", extraExports: [] },
+  { name: "infer-profile.wasm", extraExports: ["forward_trunk"] },
+];
 const PUBLISHED_ARTIFACT = "infer.wasm";
 const PUBLISHED_MODEL_ID = "moka-9";
 const PUBLISHED_MEMORY_PAGES = 13;
@@ -108,7 +112,7 @@ const modelIds = fs
   .sort();
 
 for (const id of modelIds) {
-  for (const artifact of ARTIFACTS) {
+  for (const { name: artifact, extraExports } of ARTIFACTS) {
     const label = `${id}/${artifact}`;
     const bytes = fs.readFileSync(path.join(rootDirectory, "zig-out", id, artifact));
     const sections = readSections(bytes);
@@ -128,7 +132,7 @@ for (const id of modelIds) {
       assert.equal(limits.count, 1);
       assert.equal(limits.maximum, limits.initial);
 
-      if (id === PUBLISHED_MODEL_ID) {
+      if (id === PUBLISHED_MODEL_ID && artifact !== "infer-profile.wasm") {
         assert.equal(limits.initial, PUBLISHED_MEMORY_PAGES);
       }
     });
@@ -143,7 +147,7 @@ for (const id of modelIds) {
         .map(({ name }) => name)
         .sort();
 
-      assert.deepEqual(exports, EXPECTED_EXPORTS);
+      assert.deepEqual(exports, [...EXPECTED_EXPORTS, ...extraExports].sort());
       assert.deepEqual(WebAssembly.Module.imports(module), []);
     });
   }

@@ -18,6 +18,7 @@ const WasmTargets = struct {
     target: std.Build.ResolvedTarget,
     wasm: *std.Build.Step,
     wasm_safe: *std.Build.Step,
+    wasm_profile: *std.Build.Step,
 };
 
 pub fn build(b: *std.Build) void {
@@ -46,6 +47,7 @@ pub fn build(b: *std.Build) void {
         .target = wasm_target,
         .wasm = b.step("wasm", "Build zig-out/<id>/infer.wasm"),
         .wasm_safe = b.step("wasm-safe", "Build zig-out/<id>/infer-safe.wasm (ReleaseSafe)"),
+        .wasm_profile = b.step("wasm-profile", "Build zig-out/<id>/infer-profile.wasm, which also exports forward_trunk"),
     };
     const test_step = b.step("test", "Run the native Zig tests");
 
@@ -83,8 +85,9 @@ pub fn build(b: *std.Build) void {
         memory_options.addOption(u32, "stack_bytes", WASM_STACK_BYTES);
         const memory_config = memory_options.createModule();
 
-        targets.wasm.dependOn(&addInferWasm(b, model, "infer", .ReleaseFast, targets.target, model_layout_source, memory_config).step);
-        targets.wasm_safe.dependOn(&addInferWasm(b, model, "infer-safe", .ReleaseSafe, targets.target, model_layout_source, memory_config).step);
+        targets.wasm.dependOn(&addInferWasm(b, model, "infer", "src/infer/exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config).step);
+        targets.wasm_safe.dependOn(&addInferWasm(b, model, "infer-safe", "src/infer/exports.zig", .ReleaseSafe, targets.target, model_layout_source, memory_config).step);
+        targets.wasm_profile.dependOn(&addInferWasm(b, model, "infer-profile", "src/infer/profile_exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config).step);
 
         const test_options = b.addOptions();
         const fixtures_root = if (std.fs.path.isAbsolute(fixtures)) b.graph.cwdRelativePath(fixtures) else b.path(fixtures);
@@ -130,6 +133,7 @@ fn addInferWasm(
     b: *std.Build,
     model: Model,
     name: []const u8,
+    root: []const u8,
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     model_layout_source: std.Build.LazyPath,
@@ -138,7 +142,7 @@ fn addInferWasm(
     const wasm = b.addExecutable(.{
         .name = name,
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/infer/exports.zig"),
+            .root_source_file = b.path(root),
             .target = target,
             .optimize = optimize,
             .strip = true,

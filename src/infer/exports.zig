@@ -6,7 +6,7 @@ const network = @import("network.zig");
 
 pub const panic = std.debug.no_panic;
 
-const Status = enum(u32) {
+pub const Status = enum(u32) {
     ok = 0,
     weights_not_loaded = 1,
     bad_batch_count = 2,

@@ -14,7 +14,8 @@ const WORKER_VALUES = [1, 0];
 const DEFAULT_PORT = 4173;
 const G4_RATIO_THRESHOLD = 2;
 const BASELINE_DRIFT_PERCENT = 20;
-const DEFAULT_MODEL_ID = "moka-9";
+const CONTROL_MODEL_ID = "moka-9";
+const TRUNK_STAGE = "trunk";
 
 const readOption = (name) => process.argv.includes(name);
 
@@ -88,10 +89,10 @@ const median = (values) => {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 };
 
-const measure = async (page, port, modelId, runtime, worker) => {
+const measure = async (page, port, modelId, runtime, worker, stage) => {
   const url =
     `http://127.0.0.1:${port}/bench/index.html` +
-    `?model=${modelId}&runtime=${runtime}&worker=${worker}&mode=single`;
+    `?model=${modelId}&runtime=${runtime}&worker=${worker}&mode=single&stage=${stage}`;
 
   await page.goto(url);
   await page.waitForFunction(() => window.__benchResult !== undefined, undefined, {
@@ -132,8 +133,9 @@ const buildSummary = (runs) => {
 };
 
 const printTable = (runs) => {
-  const header = ["round", "runtime", "worker", "init ms", "p50 ms", "p95 ms", "mean ms"];
+  const header = ["model", "round", "runtime", "worker", "init ms", "p50 ms", "p95 ms", "mean ms"];
   const rows = runs.map((run) => [
+    run.model,
     String(run.round),
     run.runtime,
     String(run.worker),
@@ -166,13 +168,48 @@ const readBaselineMedian = (baselinePath) => {
   return baseline.summary?.moka?.["1"]?.medianP50Ms ?? null;
 };
 
+const getBaselinePath = (modelId) => path.join(resultsDirectory, `baseline-${modelId}.json`);
+
+const buildModelReport = (modelId, benchInputs, runs) => {
+  const summary = buildSummary(runs.filter((run) => run.model === modelId));
+  const mokaMedian = summary.moka?.["1"]?.medianP50Ms ?? null;
+  const zigWorkerMedian = summary.zig?.["1"]?.medianP50Ms ?? null;
+  const zigMainThreadMedian = summary.zig?.["0"]?.medianP50Ms ?? null;
+  const trunkMedian = summary.zig?.[TRUNK_STAGE]?.medianP50Ms ?? null;
+  const baselineMedian = readBaselineMedian(getBaselinePath(modelId));
+
+  return {
+    modelSha256: benchInputs.modelSha256,
+    boardSize: benchInputs.boardSize,
+    summary,
+    ratio: mokaMedian !== null && zigWorkerMedian !== null ? mokaMedian / zigWorkerMedian : null,
+    headShare:
+      zigMainThreadMedian !== null && trunkMedian !== null
+        ? (zigMainThreadMedian - trunkMedian) / zigMainThreadMedian
+        : null,
+    baselineDriftPercent:
+      baselineMedian === null || mokaMedian === null
+        ? null
+        : ((mokaMedian - baselineMedian) / baselineMedian) * 100,
+  };
+};
+
+const writeResults = (report) => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const resultsPath = path.join(resultsDirectory, `${timestamp}.json`);
+
+  fs.writeFileSync(resultsPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  process.stdout.write(`Results written to ${path.relative(rootDirectory, resultsPath)}.\n`);
+};
+
 const main = async () => {
   const isBaseline = readOption("--baseline");
   const isVerdict = readOption("--verdict");
   const port = readPort();
-  const modelId = readValueOption("--model") ?? DEFAULT_MODEL_ID;
-  const benchInputs = readBenchInputs(modelId);
-  const baselinePath = path.join(resultsDirectory, `baseline-${modelId}.json`);
+  const modelId = readValueOption("--model") ?? CONTROL_MODEL_ID;
+  const modelIds =
+    isVerdict && modelId !== CONTROL_MODEL_ID ? [modelId, CONTROL_MODEL_ID] : [modelId];
+  const benchInputs = Object.fromEntries(modelIds.map((id) => [id, readBenchInputs(id)]));
   const runtimes = isBaseline ? ["moka"] : ["moka", "zig"];
 
   fs.mkdirSync(resultsDirectory, { recursive: true });
@@ -192,100 +229,118 @@ const main = async () => {
     const page = await browser.newPage();
     const runs = [];
 
+    const record = async (round, model, runtime, worker, stage) => {
+      const result = await measure(page, port, model, runtime, worker, stage);
+
+      runs.push({
+        model,
+        round,
+        runtime,
+        worker: stage === TRUNK_STAGE ? TRUNK_STAGE : worker,
+        initializationMs: result.initializationMs,
+        firstTenMs: result.firstTenMs,
+        p50Ms: result.p50Ms,
+        p95Ms: result.p95Ms,
+        meanMs: result.meanMs,
+        burst35Ms: result.burst35Ms,
+        iterations: result.iterations,
+      });
+    };
+
     for (let round = 1; round <= ROUND_COUNT; round += 1) {
-      const orderedRuntimes =
-        round % 2 === 1 ? runtimes : [...runtimes].reverse();
+      const isOddRound = round % 2 === 1;
+      const orderedModels = isOddRound ? modelIds : [...modelIds].reverse();
+      const orderedRuntimes = isOddRound ? runtimes : [...runtimes].reverse();
 
-      for (const worker of WORKER_VALUES) {
-        for (const runtime of orderedRuntimes) {
-          const result = await measure(page, port, modelId, runtime, worker);
+      for (const model of orderedModels) {
+        for (const worker of WORKER_VALUES) {
+          for (const runtime of orderedRuntimes) {
+            await record(round, model, runtime, worker, "full");
 
-          runs.push({
-            round,
-            runtime,
-            worker,
-            initializationMs: result.initializationMs,
-            firstTenMs: result.firstTenMs,
-            p50Ms: result.p50Ms,
-            p95Ms: result.p95Ms,
-            meanMs: result.meanMs,
-            burst35Ms: result.burst35Ms,
-            iterations: result.iterations,
-          });
+            if (runtime === "zig" && worker === 0) {
+              await record(round, model, runtime, worker, TRUNK_STAGE);
+            }
+          }
         }
       }
     }
 
     printTable(runs);
 
-    const report = {
-      modelId,
-      modelSha256: benchInputs.modelSha256,
-      boardSize: benchInputs.boardSize,
-      date: new Date().toISOString(),
-      machine: {
-        cpu: os.cpus()[0]?.model ?? "unknown",
-        browserVersion: browser.version(),
-        node: process.version,
-      },
-      runs,
-      summary: buildSummary(runs),
+    const date = new Date().toISOString();
+    const machine = {
+      cpu: os.cpus()[0]?.model ?? "unknown",
+      browserVersion: browser.version(),
+      node: process.version,
     };
 
-    if (isVerdict) {
-      const mokaMedian = report.summary.moka?.["1"]?.medianP50Ms;
-      const zigMedian = report.summary.zig?.["1"]?.medianP50Ms;
-
-      if (!mokaMedian || !zigMedian) {
-        throw new Error("The verdict needs both engines measured with a Worker.");
-      }
-
-      const ratio = mokaMedian / zigMedian;
-      const passed = ratio >= G4_RATIO_THRESHOLD;
-      const baselineMedian = readBaselineMedian(baselinePath);
-      const baselineDriftPercent =
-        baselineMedian === null
-          ? null
-          : ((mokaMedian - baselineMedian) / baselineMedian) * 100;
-
-      report.verdict = { ratio, passed, baselineDriftPercent };
-
-      if (baselineDriftPercent !== null && Math.abs(baselineDriftPercent) > BASELINE_DRIFT_PERCENT) {
-        process.stdout.write(
-          `Warning: Moka drifted by ${baselineDriftPercent.toFixed(1)}% since the S0 baseline ` +
-            `(${baselineMedian.toFixed(3)} ms). This run does not compare with S0.\n`,
-        );
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      fs.writeFileSync(
-        path.join(resultsDirectory, `${timestamp}.json`),
-        `${JSON.stringify(report, null, 2)}\n`,
-        "utf8",
-      );
-
-      process.stdout.write(`G4 ratio: ${ratio.toFixed(2)} (${passed ? "passed" : "failed"}).\n`);
-
-      if (!passed) {
-        process.exitCode = 1;
-      }
-
-      return;
-    }
-
     if (isBaseline) {
-      fs.writeFileSync(baselinePath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      const baselinePath = getBaselinePath(modelId);
+      const baseline = {
+        modelId,
+        modelSha256: benchInputs[modelId].modelSha256,
+        boardSize: benchInputs[modelId].boardSize,
+        date,
+        machine,
+        runs,
+        summary: buildSummary(runs),
+      };
+
+      fs.writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
       process.stdout.write(`Baseline written to ${path.relative(rootDirectory, baselinePath)}.\n`);
 
       return;
     }
 
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    fs.writeFileSync(
-      path.join(resultsDirectory, `${timestamp}.json`),
-      `${JSON.stringify(report, null, 2)}\n`,
-      "utf8",
+    const models = Object.fromEntries(
+      modelIds.map((id) => [id, buildModelReport(id, benchInputs[id], runs)]),
     );
+
+    for (const [id, model] of Object.entries(models)) {
+      if (
+        model.baselineDriftPercent !== null &&
+        Math.abs(model.baselineDriftPercent) > BASELINE_DRIFT_PERCENT
+      ) {
+        process.stdout.write(
+          `Warning: Moka drifted by ${model.baselineDriftPercent.toFixed(1)}% on ${id} since ` +
+            `${path.relative(rootDirectory, getBaselinePath(id))}. This run does not compare ` +
+            "with that baseline.\n",
+        );
+      }
+    }
+
+    const report = { date, machine, runs, models };
+
+    if (!isVerdict) {
+      writeResults(report);
+
+      return;
+    }
+
+    const { ratio } = models[modelId];
+
+    if (ratio === null) {
+      throw new Error("The verdict needs both engines measured with a Worker.");
+    }
+
+    const passed = ratio >= G4_RATIO_THRESHOLD;
+
+    report.verdict = { model: modelId, threshold: G4_RATIO_THRESHOLD, ratio, passed };
+    writeResults(report);
+
+    for (const [id, model] of Object.entries(models)) {
+      process.stdout.write(
+        `${id}: ratio ${model.ratio.toFixed(2)}, head share ${(model.headShare * 100).toFixed(1)}%.\n`,
+      );
+    }
+
+    process.stdout.write(
+      `G4 ratio on ${modelId}: ${ratio.toFixed(2)} (${passed ? "passed" : "failed"}).\n`,
+    );
+
+    if (!passed) {
+      process.exitCode = 1;
+    }
   } finally {
     await browser?.close();
     serverProcess.kill("SIGTERM");

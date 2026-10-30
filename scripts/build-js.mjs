@@ -190,6 +190,10 @@ const writeBenchmarkInputs = (id) => {
   );
   copyModelFiles(id, benchDirectory);
   copyIfPresent(resolve(`zig-out/${id}/infer.wasm`), path.join(benchDirectory, "infer.wasm"));
+  copyIfPresent(
+    resolve(`zig-out/${id}/infer-profile.wasm`),
+    path.join(benchDirectory, "infer-profile.wasm"),
+  );
   copyIfPresent(resolve("dist/worker.js"), path.join(benchDirectory, "worker.js"));
 };
 

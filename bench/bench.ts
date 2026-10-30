@@ -37,6 +37,7 @@ type ModelUrls = {
   manifest: string;
   weights: string;
   zigWasm: string;
+  zigProfileWasm: string;
   zigWorker: string;
 };
 
@@ -48,8 +49,23 @@ type BenchFailure = {
 
 type BenchEngine = {
   initializationMs: number;
-  infer: (features: Float32Array) => Promise<InferenceResult>;
+  infer: (features: Float32Array) => Promise<InferenceResult | null>;
+  inferOutputs: (features: Float32Array) => Promise<InferenceResult>;
   dispose: () => void;
+};
+
+type ProfileExports = {
+  memory: WebAssembly.Memory;
+  weights_ptr: () => number;
+  weights_capacity: () => number;
+  load_weights: () => void;
+  input_ptr: () => number;
+  policy_ptr: () => number;
+  value_ptr: () => number;
+  feature_count: () => number;
+  policy_moves: () => number;
+  infer: (count: number) => number;
+  forward_trunk: (count: number) => number;
 };
 
 declare global {
@@ -102,6 +118,7 @@ const getModelUrls = (modelId: string): ModelUrls => {
     manifest: `${directory}/go-model.json`,
     weights: `${directory}/go-model.bin`,
     zigWasm: `${directory}/infer.wasm`,
+    zigProfileWasm: `${directory}/infer-profile.wasm`,
     zigWorker: `${directory}/worker.js`,
   };
 };
@@ -135,9 +152,12 @@ const createWorkerEngine = async (workerUrl: string, urls: ModelUrls): Promise<B
     weightsUrl: urls.weights,
   });
 
+  const infer = async (features: Float32Array) => client.infer(features);
+
   return {
     initializationMs: performance.now() - initializationStartTime,
-    infer: async (features: Float32Array) => client.infer(features),
+    infer,
+    inferOutputs: infer,
     dispose: () => client.dispose(),
   };
 };
@@ -146,10 +166,12 @@ const createMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => 
   const initializationStartTime = performance.now();
   const manifest = await loadJson<GoModelManifest>(urls.manifest);
   const runtime = GoModelRuntime.create(manifest, await fetchArrayBuffer(urls.weights));
+  const infer = async (features: Float32Array) => runtime.infer(features);
 
   return {
     initializationMs: performance.now() - initializationStartTime,
-    infer: async (features: Float32Array) => runtime.infer(features),
+    infer,
+    inferOutputs: infer,
     dispose: () => undefined,
   };
 };
@@ -158,10 +180,59 @@ const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> 
   const initializationStartTime = performance.now();
   const module = await WebAssembly.compile(await fetchArrayBuffer(urls.zigWasm));
   const engine = await createEngine(module, await fetchArrayBuffer(urls.weights));
+  const infer = async (features: Float32Array) => engine.infer(features);
 
   return {
     initializationMs: performance.now() - initializationStartTime,
-    infer: async (features: Float32Array) => engine.infer(features),
+    infer,
+    inferOutputs: infer,
+    dispose: () => undefined,
+  };
+};
+
+const assertStatusOk = (name: string, status: number): void => {
+  if (status !== 0) {
+    throw new Error(`${name}(1) returned status ${status}.`);
+  }
+};
+
+const createZigTrunkEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
+  const initializationStartTime = performance.now();
+  const { instance } = await WebAssembly.instantiate(
+    await fetchArrayBuffer(urls.zigProfileWasm),
+    {},
+  );
+  const exports = instance.exports as unknown as ProfileExports;
+  const weights = await fetchArrayBuffer(urls.weights);
+  const weightsCapacity = exports.weights_capacity();
+
+  if (weights.byteLength !== weightsCapacity) {
+    throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
+  }
+
+  const memory = exports.memory.buffer;
+
+  new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
+  exports.load_weights();
+
+  const input = new Float32Array(memory, exports.input_ptr(), exports.feature_count());
+  const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
+  const value = new Float64Array(memory, exports.value_ptr(), 1);
+
+  return {
+    initializationMs: performance.now() - initializationStartTime,
+    infer: async (features: Float32Array) => {
+      input.set(features);
+      assertStatusOk("forward_trunk", exports.forward_trunk(1));
+
+      return null;
+    },
+    inferOutputs: async (features: Float32Array) => {
+      input.set(features);
+      assertStatusOk("infer", exports.infer(1));
+
+      return { policyLogits: policy.slice(), value: value[0] as number };
+    },
     dispose: () => undefined,
   };
 };
@@ -169,8 +240,21 @@ const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> 
 const createBenchEngine = (
   runtime: string,
   useWorker: boolean,
+  stage: string,
   urls: ModelUrls,
 ): Promise<BenchEngine> => {
+  if (stage === "trunk") {
+    if (runtime !== "zig" || useWorker) {
+      throw new Error("The trunk stage needs runtime=zig and worker=0.");
+    }
+
+    return createZigTrunkEngine(urls);
+  }
+
+  if (stage !== "full") {
+    throw new Error(`Unknown stage ${stage}; expected full or trunk.`);
+  }
+
   if (runtime === "moka") {
     return useWorker ? createWorkerEngine(MOKA_WORKER_URL, urls) : createMainThreadEngine(urls);
   }
@@ -182,7 +266,11 @@ const createBenchEngine = (
   throw new Error(`Unknown runtime ${runtime}; expected moka or zig.`);
 };
 
-const assertFinite = (result: InferenceResult): void => {
+const assertFinite = (result: InferenceResult | null): void => {
+  if (result === null) {
+    return;
+  }
+
   for (const logit of result.policyLogits) {
     if (!Number.isFinite(logit)) {
       throw new Error("The engine returned a non-finite policy logit.");
@@ -198,17 +286,20 @@ const assertMatchesReference = async (
   runtime: string,
   engine: BenchEngine,
   positions: Float32Array,
+  positionCount: number,
   inputs: BenchInputs,
   urls: ModelUrls,
 ): Promise<void> => {
   const referenceName = runtime === "zig" ? "f32acc" : "normal";
   const expectedLogits = await loadFloat32(`${urls.directory}/logits-${referenceName}.f32`);
   const expectedValues = await loadFloat64(`${urls.directory}/value-${referenceName}.f64`);
-  const logits = new Float32Array(inputs.positionCount * inputs.moveCount);
-  const values = new Float64Array(inputs.positionCount);
+  const logits = new Float32Array(positionCount * inputs.moveCount);
+  const values = new Float64Array(positionCount);
 
-  for (let positionIndex = 0; positionIndex < inputs.positionCount; positionIndex += 1) {
-    const result = await engine.infer(copyFeatures(positions, inputs.featureCount, positionIndex));
+  for (let positionIndex = 0; positionIndex < positionCount; positionIndex += 1) {
+    const result = await engine.inferOutputs(
+      copyFeatures(positions, inputs.featureCount, positionIndex),
+    );
 
     assertFinite(result);
 
@@ -222,7 +313,12 @@ const assertMatchesReference = async (
     values[positionIndex] = result.value;
   }
 
-  const mismatch = findParityMismatch(logits, values, expectedLogits, expectedValues);
+  const mismatch = findParityMismatch(
+    logits,
+    values,
+    expectedLogits.subarray(0, positionCount * inputs.moveCount),
+    expectedValues.subarray(0, positionCount),
+  );
 
   if (mismatch) {
     throw new Error(
@@ -240,6 +336,7 @@ const runBenchmark = async () => {
   const runtime = parameters.get("runtime") ?? "moka";
   const useWorker = (parameters.get("worker") ?? "1") !== "0";
   const mode = parameters.get("mode") ?? "single";
+  const stage = parameters.get("stage") ?? "full";
   const urls = getModelUrls(parameters.get("model") ?? DEFAULT_MODEL_ID);
 
   if (mode !== "single") {
@@ -263,7 +360,7 @@ const runBenchmark = async () => {
     );
   }
 
-  const engine = await createBenchEngine(runtime, useWorker, urls);
+  const engine = await createBenchEngine(runtime, useWorker, stage, urls);
 
   try {
     const firstTenMs: number[] = [];
@@ -277,7 +374,14 @@ const runBenchmark = async () => {
       assertFinite(result);
     }
 
-    await assertMatchesReference(runtime, engine, positions, inputs, urls);
+    await assertMatchesReference(
+      runtime,
+      engine,
+      positions,
+      stage === "trunk" ? 1 : positionCount,
+      inputs,
+      urls,
+    );
 
     const inferenceDurationsMs: number[] = [];
 
