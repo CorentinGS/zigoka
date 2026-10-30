@@ -18,11 +18,27 @@ pub fn poolMeanMax(comptime area: usize, comptime channels: usize, values: []con
     }
 }
 
+const LINEAR_ROWS = 4;
+const RowSums = @Vector(LINEAR_ROWS, f64);
+
 /// `out = bias + weights · input`, accumulated in f64 and stored in f32, like Moka's `applyLinear`.
-/// `weights` keep the `[out][in]` layout of the manifest.
+/// `weights` keep the `[out][in]` layout of the manifest. Rows are computed `LINEAR_ROWS` at a
+/// time so their sums run in parallel; each row keeps Moka's order of additions.
 pub fn linear(comptime inputs: usize, comptime outputs: usize, input: []const f32, weights: []const f32, bias: []const f32, out: []f32) void {
     std.debug.assert(input.len == inputs and weights.len == inputs * outputs);
-    for (0..outputs) |output| {
+    const blocked = outputs - outputs % LINEAR_ROWS;
+    var first: usize = 0;
+    while (first < blocked) : (first += LINEAR_ROWS) {
+        var sums: RowSums = undefined;
+        inline for (0..LINEAR_ROWS) |row| sums[row] = bias[first + row];
+        for (input[0..inputs], 0..) |x, column| {
+            var row_weights: RowSums = undefined;
+            inline for (0..LINEAR_ROWS) |row| row_weights[row] = weights[(first + row) * inputs + column];
+            sums += @as(RowSums, @splat(@as(f64, x))) * row_weights;
+        }
+        inline for (0..LINEAR_ROWS) |row| out[first + row] = @floatCast(sums[row]);
+    }
+    for (blocked..outputs) |output| {
         const row = weights[output * inputs ..][0..inputs];
         var sum: f64 = bias[output];
         for (input[0..inputs], row) |x, w| sum += @as(f64, x) * @as(f64, w);
@@ -57,4 +73,24 @@ test "linear accumulates in f64 before rounding to f32" {
     var out: [1]f32 = undefined;
     linear(3, 1, &input, &weights, &bias, &out);
     try testing.expectEqual(@as(f32, @floatCast(@as(f64, @as(f32, 1.0e-8)))), out[0]);
+}
+
+test "linear gives the same bits as one sequential sum per row" {
+    const inputs = 13;
+    const outputs = 2 * LINEAR_ROWS + 3;
+    var prng = std.Random.DefaultPrng.init(19);
+    const random = prng.random();
+    var input: [inputs]f32 = undefined;
+    var weights: [inputs * outputs]f32 = undefined;
+    var bias: [outputs]f32 = undefined;
+    for (&input) |*x| x.* = random.float(f32) * 2 - 1;
+    for (&weights) |*w| w.* = (random.float(f32) * 2 - 1) * 1.0e3;
+    for (&bias) |*b| b.* = random.float(f32);
+    var out: [outputs]f32 = undefined;
+    linear(inputs, outputs, &input, &weights, &bias, &out);
+    for (0..outputs) |output| {
+        var sum: f64 = bias[output];
+        for (0..inputs) |column| sum += @as(f64, input[column]) * @as(f64, weights[output * inputs + column]);
+        try testing.expectEqual(@as(u32, @bitCast(@as(f32, @floatCast(sum)))), @as(u32, @bitCast(out[output])));
+    }
 }

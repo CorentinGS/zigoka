@@ -364,6 +364,61 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
     *   Le rapport compare ce moteur au runtime TypeScript de Moka, et non à
         tout JavaScript ; les têtes de `synthetic-19` sont générées, ce qui
         ne change pas le coût du calcul mais ne dit rien de la force de jeu.
+*   **Comparaison 9×9 / 19×19** (après J5). Facteur entre `moka-9` et
+    `synthetic-19`, dans la session de J5 et, entre parenthèses, dans celle
+    de J4, sur le même code :
+
+    | Médiane des p50 | 9×9 | 19×19 | Facteur 9→19 |
+    | --- | --- | --- | --- |
+    | Moka, Worker | 6,40 ms (6,88) | 28,83 ms (30,34) | 4,50× (4,41×) |
+    | Zig, Worker | 0,380 ms (0,445) | 1,990 ms (1,975) | 5,24× (4,44×) |
+    | Zig, sans Worker | 0,335 ms (0,380) | 1,980 ms (1,975) | 5,91× (5,20×) |
+    | Zig, tronc seul | 0,310 ms (0,320) | 1,535 ms (1,405) | 4,95× (4,39×) |
+    | Zig, têtes (sans Worker − tronc) | 0,025 ms (0,06) | 0,445 ms (0,57) | 10 à 18× |
+    | Rapport Moka / Zig | 16,84 (15,46) | 14,49 (15,36) | |
+
+    Nombre de multiplications-additions, compté sur les manifestes : la
+    surface est multipliée par 4,46 (361/81) ; le tronc passe de 5,76 M à
+    25,6 M (4,46×) ; les têtes passent de 47 k à 615 k (13×), dont
+    `policy.linear` de 26 568 (82×324) à 522 728 (362×1444).
+
+    *   Le tronc suit la surface dans les deux moteurs. Rien ne signale un
+        effet de cache en 19×19.
+    *   Les têtes font 2,3 % des opérations en 19×19, mais 22 à 29 % du
+        temps de Zig. `dense.linear` faisait une seule chaîne d'additions
+        f64 par sortie, pour garder l'ordre des sommes de Moka : les
+        522 728 additions de `policy.linear` dépendaient chacune de la
+        précédente.
+*   **Têtes en lignes parallèles** (après J5). `dense.linear` calcule
+    maintenant 4 sorties à la fois dans un vecteur f64 ; chaque sortie
+    garde l'ordre d'additions de Moka, donc les sorties restent identiques
+    bit à bit (snapshot de J0 et parité de NX4 inchangés). 8 lignes ne
+    font pas mieux que 4 dans Node, 2 lignes font moins bien.
+
+    Deux sessions consécutives, l'une avec le changement, l'autre sans,
+    même machine et même Chromium (fichiers
+    `bench/results/2026-10-30T19-51-18-358Z.json` et
+    `2026-10-30T19-53-06-944Z.json`, non versionnés) :
+
+    | Médiane des p50 | 19×19 avant | 19×19 après | 9×9 avant | 9×9 après |
+    | --- | --- | --- | --- | --- |
+    | Moka, Worker | 26,720 ms | 26,790 ms | 5,905 ms | 5,800 ms |
+    | Zig, Worker | 1,740 ms | 1,550 ms | 0,345 ms | 0,345 ms |
+    | Zig, sans Worker | 1,655 ms | 1,470 ms | 0,310 ms | 0,300 ms |
+    | Zig, tronc seul | 1,285 ms | 1,280 ms | 0,290 ms | 0,290 ms |
+    | Rapport Moka / Zig | 15,36 | 17,28 | 17,12 | 16,81 |
+
+    *   En 19×19, les têtes passent d'environ 0,37 ms à 0,19 ms, et
+        l'inférence complète via le Worker gagne 11 %. Le 9×9 ne change pas
+        au-delà du bruit.
+    *   Dans ces deux sessions, Moka est 23 à 24 % plus rapide que
+        `baseline-moka-9.json`, et le tronc de Zig 17 % plus rapide qu'en
+        J5 : la machine allait plus vite. Seule la comparaison entre ces deux
+        sessions vaut, pas avec les chiffres de J5.
+    *   Il reste environ 0,19 ms de têtes pour 0,6 M d'opérations. Chaque
+        colonne lit encore 4 poids isolés, un par ligne. Ranger les poids des
+        têtes en `[in][out]` au chargement permettrait des lectures
+        contiguës ; ce n'est pas fait.
 
 ## Open Questions
 

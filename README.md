@@ -42,8 +42,12 @@ session :
 
 | Modèle | Plateau | Moka | Ce moteur | Rapport | Tronc seul |
 | --- | --- | --- | --- | --- | --- |
-| `synthetic-19` | 19×19 | 28,830 ms | 1,990 ms | 14,49 | 1,535 ms |
-| `moka-9` | 9×9 | 6,400 ms | 0,380 ms | 16,84 | 0,310 ms |
+| `synthetic-19` | 19×19 | 26,790 ms | 1,550 ms | 17,28 | 1,280 ms |
+| `moka-9` | 9×9 | 5,800 ms | 0,345 ms | 16,81 | 0,290 ms |
+
+Le rapport est du même ordre sur les deux tailles. Le tronc suit la surface du
+plateau (×4,46). Les têtes pèsent plus en 19×19 : `policy.linear` y a 20 fois
+plus de poids qu'en 9×9.
 
 Limites :
 
