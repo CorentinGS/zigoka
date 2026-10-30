@@ -38,6 +38,10 @@ const nodeBundles = [
     entryPoints: [resolve("oracle/calibrate-tolerance.ts")],
     outfile: resolve("oracle/dist/calibrate.js"),
   },
+  {
+    entryPoints: [resolve("oracle/generate-synthetic-model.ts")],
+    outfile: resolve("oracle/dist/generate-synthetic-model.js"),
+  },
 ];
 
 const buildBundle = async ({ entryPoints, outfile }) => {

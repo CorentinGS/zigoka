@@ -13,10 +13,12 @@
     "oracle": "zig build models && pnpm build:js && node scripts/run-oracle.mjs",
     "oracle:check": "zig build models && pnpm build:js && node scripts/run-oracle.mjs --check",
     "calibrate": "pnpm build:js && node oracle/dist/calibrate.js",
+    "models": "pnpm build:js && node oracle/dist/generate-synthetic-model.js",
+    "models:check": "pnpm build:js && node oracle/dist/generate-synthetic-model.js --check",
     "test": "zig build test && zig build models wasm wasm-safe && node --test \"tests/*.test.mjs\" \"tests/*.test.ts\"",
     "test:e2e": "playwright test",
     "bench": "zig build models wasm && pnpm build:js && node bench/run.mjs",
-    "check:all": "pnpm gen && pnpm build && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
+    "check:all": "pnpm typecheck && pnpm gen && pnpm build && pnpm models:check && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

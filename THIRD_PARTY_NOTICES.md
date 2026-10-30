@@ -13,6 +13,11 @@ This project vendors parts of [Moka](https://github.com/millionco/moka), a Go
 The vendored copy is never modified. Its file list and per-file SHA-256
 digests are recorded in `vendor/moka/VENDORED.md`.
 
+`models/synthetic-19/` is derived from Moka's weights: its trunk is copied
+byte for byte from `vendor/moka/model/go-model.bin`, and its heads are
+resampled from Moka's head rows. It is distributed under the same MIT license.
+Its origin is recorded in `models/synthetic-19/PROVENANCE.md`.
+
 > MIT License
 >
 > Copyright (c) 2026 Million Software, Inc.
