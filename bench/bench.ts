@@ -210,8 +210,9 @@ const runBenchmark = async () => {
       const features = copyFeatures(positions, warmupIndex);
       const inferenceStartTime = performance.now();
 
-      await engine.infer(features);
+      const result = await engine.infer(features);
       firstTenMs.push(performance.now() - inferenceStartTime);
+      assertFinite(result);
     }
 
     for (let positionIndex = 0; positionIndex < POSITION_COUNT; positionIndex += 1) {
@@ -227,8 +228,9 @@ const runBenchmark = async () => {
       const features = copyFeatures(positions, positionIndex);
       const inferenceStartTime = performance.now();
 
-      await engine.infer(features);
+      const result = await engine.infer(features);
       inferenceDurationsMs.push(performance.now() - inferenceStartTime);
+      assertFinite(result);
     }
 
     let burst35Ms: number[] | null = null;
@@ -237,13 +239,18 @@ const runBenchmark = async () => {
       const bursts: number[] = [];
 
       for (let burstIndex = 0; burstIndex < BURST_COUNT; burstIndex += 1) {
+        const burstFeatures = Array.from({ length: BURST_SIZE }, (_, positionIndex) =>
+          copyFeatures(positions, positionIndex),
+        );
+        const burstResults: Awaited<ReturnType<BenchEngine["infer"]>>[] = [];
         const burstStartTime = performance.now();
 
-        for (let positionIndex = 0; positionIndex < BURST_SIZE; positionIndex += 1) {
-          await engine.infer(copyFeatures(positions, positionIndex));
+        for (const features of burstFeatures) {
+          burstResults.push(await engine.infer(features));
         }
 
         bursts.push(performance.now() - burstStartTime);
+        burstResults.forEach(assertFinite);
       }
 
       burst35Ms = bursts;

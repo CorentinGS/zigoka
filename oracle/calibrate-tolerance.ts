@@ -90,6 +90,15 @@ const main = (): void => {
     },
   };
 
+  if (logitsTolerance > LOGITS_CAP || valueTolerance > VALUE_CAP) {
+    fail(
+      `Measured drift: logits ${maxLogitDifference.toExponential(3)}, value ` +
+        `${maxValueDifference.toExponential(3)}. The calibrated tolerance exceeds the caps, ` +
+        "so oracle/tolerance.json is left unchanged. The project stops here, before any Zig " +
+        "code is written, and the design has to be revisited.",
+    );
+  }
+
   fs.writeFileSync(tolerancePath, `${JSON.stringify(tolerance, null, 2)}\n`, "utf8");
 
   process.stdout.write(
@@ -99,13 +108,6 @@ const main = (): void => {
       `value ${valueTolerance.toExponential(3)} (cap ${VALUE_CAP}).\n` +
       `Written to oracle/tolerance.json.\n`,
   );
-
-  if (logitsTolerance > LOGITS_CAP || valueTolerance > VALUE_CAP) {
-    fail(
-      "The calibrated tolerance exceeds the caps. The project stops here, before any Zig " +
-        "code is written, and the design has to be revisited.",
-    );
-  }
 };
 
 main();

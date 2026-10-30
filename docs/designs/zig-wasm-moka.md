@@ -201,13 +201,15 @@ d'ordre de grandeur. La phase 1 corrige le banc et mesure Moka à nouveau.
     règle de « Oracle et tolérance ».
 *   **Plafond de taille de `infer.wasm`.** La proposition est 32 Kio après
     gzip, contre environ 4 Kio pour le runtime de Moka. Elle sera confirmée
-    après le premier build de S1.
+    à la fin de S3. Le build de S1 (119 octets, sans noyaux) ne dit rien de
+    la taille finale.
 *   **Taille de la mémoire linéaire et de la pile.** Les valeurs proposées sont
     1 Mio et 64 Kio. Elles seront confirmées en S2, d'après la taille réelle
     des variables globales : le nombre de pages est le plus petit qui laisse
     au moins 25 % de marge au-dessus des tampons et de la pile.
-*   **Version exacte de Zig.** Ce sera la dernière version stable au début de
-    S1. Elle sera alors écrite dans `mise.toml`.
+*   **Version exacte de Zig.** Résolu en S1 : Zig 0.17.0, la dernière
+    version stable au 2026-10-30. Elle est écrite dans `mise.toml` et dans
+    `minimum_zig_version` de `build.zig.zon`.
 *   **Quelle CSP Chromium applique au Worker.** D'après la spécification
     HTML, un Worker dédié chargé en http(s) reçoit la CSP des en-têtes de
     `worker.js`, et non celle de la page. Ce point sera vérifié en S4 par les
@@ -1020,8 +1022,7 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
     moins 22.18 dans tous les cas : c'est la première version qui supprime
     les types TypeScript sans option. La cible esbuild de l'oracle suit la
     même version majeure (`target: node24`). La version exacte de `zig` est
-    ajoutée au début de S1 (voir Open Questions).
-    Zig n'est pas encore installé sur la machine de développement.
+    ajoutée au début de S1 (voir Open Questions) : c'est 0.17.0.
 
 ###### 2. `./.gitignore` (Create)
 
@@ -1375,13 +1376,16 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
         binaire construit à partir du manifeste, ce qui est le critère de
         sortie de S1. Il est complété au fichier 26. Dès ce premier build, on
         relève les exports que l'éditeur de liens ajoute avec
-        `rdynamic = true` (par exemple `__stack_pointer` ou
-        `__indirect_function_table`). La liste de ces exceptions est écrite
-        dans le test du fichier 35.
+        `rdynamic = true`. Avec Zig 0.17.0, la seule exception relevée est
+        `__stack_pointer` (pas d'`__indirect_function_table`). Elle est
+        écrite dans le test du fichier 35.
     *   **Étape `gen`** :
         *   compile `tools/gen_model_layout.zig` pour l'hôte ;
-        *   l'exécute avec `vendor/moka/model/go-model.json`, le `.bin` et un
-            dossier de sortie du cache ;
+        *   l'exécute avec `vendor/moka/model/go-model.json`, le `.bin` et le
+            chemin du fichier de sortie, dans le cache
+            (`addOutputFileArg("model_layout.zig")`) ;
+        *   copie aussi ce fichier dans `zig-out/gen/model_layout.zig`, pour
+            pouvoir le relire ;
         *   ajoute le module produit (`model_layout`) aux imports de
             `infer.wasm` et des tests.
     *   **Étape `test`** : un exécutable de test natif, de racine
@@ -1393,10 +1397,18 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
             `initial_memory = max_memory = 16 × 65536`,
             `stack_size = 65536`, `import_memory = false`,
             `export_memory = true`. Le nombre de pages (16) est une
-            estimation, confirmée en S2 quand `buffers.zig` existe.
+            estimation, confirmée en S2 quand `buffers.zig` existe ;
+        *   `strip = true` : sans lui, `ReleaseFast` garde environ 5,5 Kio
+            d'informations de débogage DWARF, qui fausseraient G6.
     *   **Option `-Dfixtures`** : le chemin des données de référence, par
-        défaut `oracle/fixtures`, converti en chemin absolu par
-        `b.pathFromRoot`, pour ne pas dépendre du dossier courant des tests.
+        défaut `oracle/fixtures`. Il est passé aux tests par le module
+        `build_options` (`fixtures_dir`), avec `addOptionPathUntracked`, pour
+        que le build ne hache pas les données. `b.pathFromRoot` n'existe plus
+        en Zig 0.17 :
+        *   un chemin relatif reste relatif à la racine du build, et
+            `zig build` lance les tests depuis cette racine, même quand on
+            l'appelle depuis un sous-dossier ;
+        *   un chemin absolu est gardé tel quel (`b.graph.cwdRelativePath`).
 
 ###### 18. `./src/test_root.zig` (Create)
 

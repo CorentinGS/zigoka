@@ -1,0 +1,15 @@
+.{
+    .name = .go_network,
+    .version = "0.0.0",
+    .fingerprint = 0x228580a243af9987,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "vendor/moka/model",
+        "LICENSE",
+    },
+}

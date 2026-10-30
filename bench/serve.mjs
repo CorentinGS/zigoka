@@ -33,21 +33,30 @@ const readPortArgument = () => {
   return port;
 };
 
+const SERVED_DIRECTORIES = ["bench", "dist"];
+
 const resolveRequestPath = (requestUrl) => {
-  const urlPath = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname);
+  let urlPath;
+
+  try {
+    urlPath = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname);
+  } catch {
+    return null;
+  }
 
   if (urlPath === "/") {
     return path.join(rootDirectory, "bench", "index.html");
   }
 
-  if (urlPath.startsWith("/bench/") || urlPath.startsWith("/dist/")) {
-    const resolved = path.resolve(rootDirectory, urlPath.slice(1));
-
-    if (!resolved.startsWith(`${rootDirectory}${path.sep}`)) {
-      return null;
+  for (const directory of SERVED_DIRECTORIES) {
+    if (!urlPath.startsWith(`/${directory}/`)) {
+      continue;
     }
 
-    return resolved;
+    const servedDirectory = path.join(rootDirectory, directory);
+    const resolved = path.resolve(rootDirectory, urlPath.slice(1));
+
+    return resolved.startsWith(`${servedDirectory}${path.sep}`) ? resolved : null;
   }
 
   return null;

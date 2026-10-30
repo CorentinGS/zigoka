@@ -96,7 +96,10 @@ const createRuntimes = (): Runtimes => {
   };
 };
 
-const areFloat32ArraysEqual = (left: Float32Array, right: Float32Array): boolean => {
+const areFloatArraysEqual = (
+  left: Float32Array | Float64Array,
+  right: Float32Array | Float64Array,
+): boolean => {
   if (left.length !== right.length) {
     return false;
   }
@@ -146,14 +149,19 @@ const assertNormalParity = (state: GoGameState, runtimes: Runtimes): void => {
   const vendorResult = runtimes.normal.infer(features);
   const instrumentedResult = runtimes.instrumentedNormal.infer(features);
 
-  if (!areFloat32ArraysEqual(vendorResult.policyLogits, instrumentedResult.policyLogits)) {
+  if (!areFloatArraysEqual(vendorResult.policyLogits, instrumentedResult.policyLogits)) {
     fail(
       "The instrumented runtime does not reproduce Moka bit for bit in normal mode. " +
         "The oracle cannot be trusted.",
     );
   }
 
-  if (vendorResult.value !== instrumentedResult.value) {
+  if (
+    !areFloatArraysEqual(
+      Float64Array.of(vendorResult.value),
+      Float64Array.of(instrumentedResult.value),
+    )
+  ) {
     fail(
       "The instrumented runtime does not reproduce the Moka value bit for bit in normal " +
         "mode. The oracle cannot be trusted.",
@@ -506,6 +514,10 @@ const main = (): void => {
   process.stdout.write("Vendored files match their digests.\n");
 
   const runtimes = createRuntimes();
+
+  playJournalProbe(runtimes, { positions: [], games: [] });
+  playSmokeProbe(runtimes, { positions: [], games: [] });
+  process.stdout.write("The instrumented runtime reproduces Moka bit for bit on the probes.\n");
 
   process.stdout.write("Generating the calibration set (50 games)...\n");
   const calibration = generateCalibrationDataset(runtimes);
