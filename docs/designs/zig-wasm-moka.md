@@ -1108,8 +1108,10 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
     *   Dépendances de développement, à des versions exactes : `esbuild`,
         `typescript`, `@types/node` et `@playwright/test`. `pnpm-lock.yaml`
         est versionné.
-    *   Scripts. Ceux de S0 ne dépendent que de `build:js`, et donc pas de
-        Zig, qui n'arrive qu'en S1 :
+    *   Scripts. Ceux de l'oracle ne dépendent que de `build:js`, et donc pas
+        de Zig, qui n'arrive qu'en S1. Depuis S3, `bench` construit
+        `infer.wasm` avant de mesurer, pour ne jamais mesurer un `.wasm`
+        périmé :
 
         | Script | Commande |
         | --- | --- |
@@ -1121,7 +1123,7 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
         | `oracle:check` | `pnpm build:js`, puis `node oracle/dist/generate.js --check` |
         | `calibrate` | `pnpm build:js`, puis `node oracle/dist/calibrate.js` |
         | `test` | `zig build test`, puis `zig build wasm`, puis `node --test "tests/*.test.mjs" "tests/*.test.ts"` |
-        | `bench` | `pnpm build:js`, puis `node bench/run.mjs` |
+        | `bench` | `zig build wasm`, puis `pnpm build:js`, puis `node bench/run.mjs` |
 
         Les options se passent sans `--` (`pnpm bench --baseline`), car pnpm
         transmet les arguments au script.
@@ -1156,8 +1158,8 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
     *   pour le navigateur (`format: esm`, `platform: browser`,
         `target: es2022`, `bundle: true`). Le Worker doit être en ESM, car il
         utilise `import.meta.url` et se crée avec `{ type: "module" }` :
-        *   `dist/worker.js`, à partir de `js/worker.ts`, seulement si ce
-            fichier existe : il n'est créé qu'en S3 (fichier 27) ;
+        *   `dist/worker.js`, à partir de `js/worker.ts` (fichier 27, créé
+            en S3) ;
         *   `bench/dist/bench.js`, à partir de `bench/bench.ts` ;
         *   `bench/dist/moka-worker.js`, à partir de
             `vendor/moka/src/worker.ts` ;

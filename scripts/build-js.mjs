@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const resolve = (relativePath) => path.join(rootDirectory, relativePath);
-const exists = (relativePath) => fs.existsSync(resolve(relativePath));
 
 const BROWSER_TARGET = "es2022";
 const NODE_TARGET = "node24";
@@ -19,6 +18,10 @@ const browserBundles = [
   {
     entryPoints: [resolve("vendor/moka/src/worker.ts")],
     outfile: resolve("bench/dist/moka-worker.js"),
+  },
+  {
+    entryPoints: [resolve("js/worker.ts")],
+    outfile: resolve("dist/worker.js"),
   },
 ];
 
@@ -136,14 +139,6 @@ const writeBenchmarkInputs = () => {
 const main = async () => {
   for (const bundle of browserBundles) {
     await buildBundle(bundle);
-  }
-
-  // The Zig Worker only exists from S3 on.
-  if (exists("js/worker.ts")) {
-    await buildBundle({
-      entryPoints: [resolve("js/worker.ts")],
-      outfile: resolve("dist/worker.js"),
-    });
   }
 
   for (const bundle of nodeBundles) {

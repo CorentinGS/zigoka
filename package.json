@@ -14,7 +14,7 @@
     "oracle:check": "pnpm build:js && node oracle/dist/generate.js --check",
     "calibrate": "pnpm build:js && node oracle/dist/calibrate.js",
     "test": "zig build test && zig build wasm && node --test \"tests/*.test.mjs\" \"tests/*.test.ts\"",
-    "bench": "pnpm build:js && node bench/run.mjs",
+    "bench": "zig build wasm && pnpm build:js && node bench/run.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
