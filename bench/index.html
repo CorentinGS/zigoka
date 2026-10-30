@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moka benchmark</title>
+    <style>
+      body {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: 2rem;
+      }
+
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Moka benchmark</h1>
+    <p>
+      Parameters: <code>?runtime=moka|zig&amp;worker=1|0&amp;mode=single|batch</code>
+    </p>
+    <pre id="results">running…</pre>
+    <script type="module" src="./dist/bench.js"></script>
+  </body>
+</html>
