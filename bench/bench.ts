@@ -1,5 +1,6 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
+import { createEngine } from "../js/engine.ts";
 
 const POSITION_COUNT = 100;
 const FEATURE_COUNT = 972;
@@ -11,6 +12,8 @@ const BURST_SIZE = 35;
 const MANIFEST_URL = "/dist/go-model.json";
 const WEIGHTS_URL = "/dist/go-model.bin";
 const MOKA_WORKER_URL = "/bench/dist/moka-worker.js";
+const ZIG_WORKER_URL = "/dist/worker.js";
+const ZIG_WASM_URL = "/dist/infer.wasm";
 
 const P50_PERCENTILE = 0.5;
 const P95_PERCENTILE = 0.95;
@@ -92,8 +95,18 @@ const copyFeatures = (positions: Float32Array, positionIndex: number): Float32Ar
   return positions.slice(start, start + FEATURE_COUNT);
 };
 
-const createWorkerEngine = async (): Promise<BenchEngine> => {
-  const client = new GoModelWorkerClient(new Worker(MOKA_WORKER_URL, { type: "module" }));
+const fetchArrayBuffer = async (url: string): Promise<ArrayBuffer> => {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load ${url} (${response.status}).`);
+  }
+
+  return response.arrayBuffer();
+};
+
+const createWorkerEngine = async (workerUrl: string): Promise<BenchEngine> => {
+  const client = new GoModelWorkerClient(new Worker(workerUrl, { type: "module" }));
   const initializationStartTime = performance.now();
 
   await client.initialize({
@@ -111,19 +124,37 @@ const createWorkerEngine = async (): Promise<BenchEngine> => {
 const createMainThreadEngine = async (): Promise<BenchEngine> => {
   const initializationStartTime = performance.now();
   const manifest = await loadJson<GoModelManifest>(MANIFEST_URL);
-  const weightsResponse = await fetch(WEIGHTS_URL);
-
-  if (!weightsResponse.ok) {
-    throw new Error(`Unable to load ${WEIGHTS_URL} (${weightsResponse.status}).`);
-  }
-
-  const runtime = GoModelRuntime.create(manifest, await weightsResponse.arrayBuffer());
+  const runtime = GoModelRuntime.create(manifest, await fetchArrayBuffer(WEIGHTS_URL));
 
   return {
     initializationMs: performance.now() - initializationStartTime,
     infer: async (features: Float32Array) => runtime.infer(features),
     dispose: () => undefined,
   };
+};
+
+const createZigMainThreadEngine = async (): Promise<BenchEngine> => {
+  const initializationStartTime = performance.now();
+  const module = await WebAssembly.compile(await fetchArrayBuffer(ZIG_WASM_URL));
+  const engine = await createEngine(module, await fetchArrayBuffer(WEIGHTS_URL));
+
+  return {
+    initializationMs: performance.now() - initializationStartTime,
+    infer: async (features: Float32Array) => engine.infer(features),
+    dispose: () => undefined,
+  };
+};
+
+const createBenchEngine = (runtime: string, useWorker: boolean): Promise<BenchEngine> => {
+  if (runtime === "moka") {
+    return useWorker ? createWorkerEngine(MOKA_WORKER_URL) : createMainThreadEngine();
+  }
+
+  if (runtime === "zig") {
+    return useWorker ? createWorkerEngine(ZIG_WORKER_URL) : createZigMainThreadEngine();
+  }
+
+  throw new Error(`Unknown runtime ${runtime}; expected moka or zig.`);
 };
 
 const assertFinite = (result: { policyLogits: Float32Array; value: number }): void => {
@@ -176,12 +207,8 @@ const runBenchmark = async () => {
   const useWorker = (parameters.get("worker") ?? "1") !== "0";
   const mode = parameters.get("mode") ?? "single";
 
-  if (runtime !== "moka") {
-    throw new Error(`The ${runtime} engine does not exist yet. It arrives with S3.`);
-  }
-
   if (mode !== "single") {
-    throw new Error(`The ${mode} mode needs the Zig engine. It arrives with S3.`);
+    throw new Error(`The ${mode} mode is not implemented; only single is.`);
   }
 
   if (!window.crossOriginIsolated) {
@@ -201,7 +228,7 @@ const runBenchmark = async () => {
     );
   }
 
-  const engine = useWorker ? await createWorkerEngine() : await createMainThreadEngine();
+  const engine = await createBenchEngine(runtime, useWorker);
 
   try {
     const firstTenMs: number[] = [];

@@ -4,6 +4,9 @@ const model_layout = @import("model_layout");
 test {
     _ = @import("infer/buffers.zig");
     _ = @import("infer/weights.zig");
+    _ = @import("infer/kernels.zig");
+    _ = @import("infer/dense.zig");
+    _ = @import("infer/network.zig");
 }
 
 test "the generated layout matches the Moka model" {

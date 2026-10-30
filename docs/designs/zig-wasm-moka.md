@@ -195,14 +195,45 @@ d'ordre de grandeur. La phase 1 corrige le banc et mesure Moka à nouveau.
 *   **Build natif AVX2 comme cible de performance.** Le build natif sert
     uniquement aux tests.
 
+## Mesures enregistrées
+
+Machine : AMD Ryzen 7 8845HS, Chromium 156.0.8078.4 (Playwright 1.64.1),
+Node v24.22.1, Zig 0.17.0. Les valeurs ne valent que pour cette machine.
+
+*   **S0 — tolérance (G3)** (`oracle/tolerance.json`, 5 239 positions de
+    calibration) : dérive f32 mesurée de 1,526e-5 sur les logits et 2,116e-6
+    sur la valeur ; tolérance (4 fois la mesure) de 6,104e-5 et 8,464e-6,
+    sous les plafonds 2e-3 et 1e-3.
+*   **S0 — référence G1** (`bench/results/baseline-moka.json`,
+    2026-10-30) : médiane des p50 de Moka de 7,665 ms avec Worker et
+    7,275 ms sans Worker.
+*   **S3 — `infer.wasm`** : 19 045 octets, 6 692 octets après gzip (zlib,
+    niveau 9) ; 13 pages (832 Kio) de mémoire fixe, pile de 64 Kio ; aucun
+    import.
+*   **S3 — diagnostic bit à bit** : 0 position en écart sur 5 239
+    (calibration) et 0 sur 1 481 (validation). Les logits sont identiques
+    bit à bit à ceux du mode `f32Accumulate`, et la valeur l'est à 2 ulp
+    près.
+*   **S3 — G3** (validation, 1 481 positions) : dérive maximale de 1,526e-5
+    sur les logits et 1,868e-6 sur la valeur, sous la tolérance ; 0 coup
+    différent de celui de Moka. G3 est atteint.
+*   **S3 — verdict G4** (`bench/results/2026-10-30T13-48-18-915Z.json`) :
+    médiane des p50 avec Worker de 5,900 ms pour Moka et 0,365 ms pour Zig,
+    soit un rapport de 16,16, pour un seuil de 2. **G4 est atteint** ; la
+    phase 2 peut commencer. Sans Worker : 5,730 ms et 0,325 ms.
+    *   Moka a dérivé de −23 % depuis la référence G1 de S0 (5,900 ms contre
+        7,665 ms), au-delà de l'alerte de 20 %. Le verdict reste celui de la
+        mesure du jour, où les deux moteurs tournent dans la même exécution ;
+        avec la référence de S0, le rapport serait plus élevé encore.
+
 ## Open Questions
 
 *   **Seuils de tolérance définitifs (G3).** Ils seront fixés en S0, selon la
     règle de « Oracle et tolérance ».
-*   **Plafond de taille de `infer.wasm`.** La proposition est 32 Kio après
-    gzip, contre environ 4 Kio pour le runtime de Moka. Elle sera confirmée
-    à la fin de S3. Le build de S1 (119 octets, sans noyaux) ne dit rien de
-    la taille finale.
+*   **Plafond de taille de `infer.wasm`.** Résolu en S3 : 32 Kio après gzip.
+    Le build de S3 fait 19 045 octets, et 6 692 octets après gzip (zlib,
+    niveau 9), donc sous 32 Kio ; le plafond reste 32 Kio, contre environ
+    4 Kio pour le runtime de Moka.
 *   **Taille de la mémoire linéaire et de la pile.** Résolu en S2 : 13 pages
     (832 Kio) et une pile de 64 Kio. Les tampons font 606 348 octets, soit
     671 884 octets avec la pile. 13 pages laissent 26,8 % de marge, et
