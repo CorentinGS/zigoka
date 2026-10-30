@@ -1,0 +1,33 @@
+{
+  "modelId": "moka-9",
+  "sets": {
+    "calibration": {
+      "positions": 5239,
+      "featuresSha256": "16ed11fcc0e1c3de3c6aa5d7395721ca4fadd1f26539db8b74535008ae1dee9e",
+      "outputs": {
+        "infer.wasm": {
+          "logitsSha256": "c57d0f344734109ae4df5012b96f2504dc68c9fa094719f259a7d5eb55efbb1b",
+          "valuesSha256": "5ebd781ce382ae13d7316485f6178a85a7eaa0f6bdfb17362053aef61c2c1630"
+        },
+        "infer-safe.wasm": {
+          "logitsSha256": "c57d0f344734109ae4df5012b96f2504dc68c9fa094719f259a7d5eb55efbb1b",
+          "valuesSha256": "5ebd781ce382ae13d7316485f6178a85a7eaa0f6bdfb17362053aef61c2c1630"
+        }
+      }
+    },
+    "validation": {
+      "positions": 1481,
+      "featuresSha256": "8473cf83d9d2dc81040774f31e9288d3ba2d6f2a719817fa7dd63d488ca2acac",
+      "outputs": {
+        "infer.wasm": {
+          "logitsSha256": "5debf53291b568c2f4fedc55278e01d0858baa23c8f1079082afeff16afeb6f5",
+          "valuesSha256": "12ba84fdf6dc1dbabf2c989943e4480aed151db15bdc7d81f78a939c62a13b27"
+        },
+        "infer-safe.wasm": {
+          "logitsSha256": "5debf53291b568c2f4fedc55278e01d0858baa23c8f1079082afeff16afeb6f5",
+          "valuesSha256": "12ba84fdf6dc1dbabf2c989943e4480aed151db15bdc7d81f78a939c62a13b27"
+        }
+      }
+    }
+  }
+}

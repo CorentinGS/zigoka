@@ -5,20 +5,28 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+  STATUS_OK,
+  getUlpDistance,
+  instantiate as instantiateWithWeights,
+  readOutputs as readOutputsWithDimensions,
+  runFixtureSet as runFixtureSetWithDimensions,
+  selectHighestLegalMove as selectHighestLegalMoveWithMoveCount,
+  writeInputs as writeInputsWithDimensions,
+} from "./inference-harness.mjs";
+
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const resolve = (relativePath) => path.join(rootDirectory, relativePath);
 
 const FEATURE_COUNT = 972;
 const INPUT_STRIDE = 984;
 const MOVE_COUNT = 82;
-const PASS_MOVE = 81;
 const MAX_BATCH = 8;
 const WEIGHTS_BYTES = 113_648;
 const SHA256_BYTE_COUNT = 32;
 const VALUE_ULP_LIMIT = 2n;
 const MEMORY_CHECK_INFERENCES = 1000;
 
-const STATUS_OK = 0;
 const STATUS_WEIGHTS_NOT_LOADED = 1;
 const STATUS_BAD_BATCH_COUNT = 2;
 
@@ -26,6 +34,22 @@ const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
 
 const weights = fs.readFileSync(resolve("vendor/moka/model/go-model.bin"));
 const tolerance = JSON.parse(fs.readFileSync(resolve("oracle/tolerance.json"), "utf8"));
+
+const DIMENSIONS = {
+  featureCount: FEATURE_COUNT,
+  inputStride: INPUT_STRIDE,
+  moveCount: MOVE_COUNT,
+  maxBatch: MAX_BATCH,
+};
+
+const instantiate = (wasmModule, options) => instantiateWithWeights(wasmModule, weights, options);
+const writeInputs = (exports, features, start, count) =>
+  writeInputsWithDimensions(exports, DIMENSIONS, features, start, count);
+const readOutputs = (exports, count) => readOutputsWithDimensions(exports, DIMENSIONS, count);
+const runFixtureSet = (exports, fixtureSet) =>
+  runFixtureSetWithDimensions(exports, DIMENSIONS, fixtureSet);
+const selectHighestLegalMove = (logits, legal) =>
+  selectHighestLegalMoveWithMoveCount(logits, legal, MOVE_COUNT);
 
 const copyBytes = (buffer) => new Uint8Array(buffer).buffer;
 
@@ -45,82 +69,6 @@ const readFixtureSet = (name) => {
     legal: new Uint8Array(read("legal.u8")),
     chosenMove: new Uint8Array(read("chosen-move.u8")),
   };
-};
-
-const instantiate = (wasmModule, { loadWeights }) => {
-  const { exports } = new WebAssembly.Instance(wasmModule, {});
-
-  if (loadWeights) {
-    new Uint8Array(exports.memory.buffer, exports.weights_ptr(), exports.weights_capacity()).set(
-      weights,
-    );
-    exports.load_weights();
-  }
-
-  return exports;
-};
-
-const writeInputs = (exports, features, start, count) => {
-  const input = new Float32Array(exports.memory.buffer, exports.input_ptr(), MAX_BATCH * INPUT_STRIDE);
-
-  for (let k = 0; k < count; k += 1) {
-    const offset = (start + k) * FEATURE_COUNT;
-    input.set(features.subarray(offset, offset + FEATURE_COUNT), k * INPUT_STRIDE);
-  }
-};
-
-const readOutputs = (exports, count) => ({
-  logits: new Float32Array(exports.memory.buffer, exports.policy_ptr(), count * MOVE_COUNT).slice(),
-  values: new Float64Array(exports.memory.buffer, exports.value_ptr(), count).slice(),
-});
-
-const runFixtureSet = (exports, fixtureSet) => {
-  const logits = new Float32Array(fixtureSet.positions * MOVE_COUNT);
-  const values = new Float64Array(fixtureSet.positions);
-  const failedBatches = [];
-
-  for (let start = 0; start < fixtureSet.positions; start += MAX_BATCH) {
-    const count = Math.min(MAX_BATCH, fixtureSet.positions - start);
-    writeInputs(exports, fixtureSet.features, start, count);
-    const status = exports.infer(count);
-
-    if (status !== STATUS_OK) {
-      failedBatches.push({ start, count, status });
-    }
-
-    const outputs = readOutputs(exports, count);
-    logits.set(outputs.logits, start * MOVE_COUNT);
-    values.set(outputs.values, start);
-  }
-
-  return { logits, values, failedBatches };
-};
-
-const getUlpDistance = (left, right) => {
-  const bits = new BigInt64Array(new Float64Array([left, right]).buffer);
-  const toOrdered = (value) => (value < 0n ? -(value & 0x7fff_ffff_ffff_ffffn) : value);
-  const distance = toOrdered(bits[0]) - toOrdered(bits[1]);
-
-  return distance < 0n ? -distance : distance;
-};
-
-const selectHighestLegalMove = (logits, legal) => {
-  let selectedMove = legal[PASS_MOVE] === 1 ? PASS_MOVE : legal.indexOf(1);
-
-  if (selectedMove < 0) {
-    selectedMove = PASS_MOVE;
-  }
-
-  let selectedValue = logits[selectedMove];
-
-  for (let move = 0; move < MOVE_COUNT; move += 1) {
-    if (legal[move] === 1 && logits[move] > selectedValue) {
-      selectedMove = move;
-      selectedValue = logits[move];
-    }
-  }
-
-  return selectedMove;
 };
 
 const describeArtifact = (artifact) => {
