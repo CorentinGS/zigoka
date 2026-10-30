@@ -4,6 +4,8 @@
 *   **Status:** Approved
 *   **Date:** 2026-10-30
 
+Partiellement amendé par [`zig-wasm-nxn.md`](zig-wasm-nxn.md).
+
 --------------------------------------------------------------------------------
 
 ## Overview
@@ -183,8 +185,9 @@ d'ordre de grandeur. La phase 1 corrige le banc et mesure Moka à nouveau.
     v1.
 *   **Modèle 19×19.** La géométrie et les noyaux sont écrits de façon
     générique en N, ce qui ne coûte rien. Seule la géométrie est testée à
-    N = 19. Les têtes et les tests des noyaux à N = 19 viendront avec le
-    design du modèle 19×19.
+    N = 19. Les tests des noyaux à N = 19 et un modèle synthétique 19×19 aux
+    têtes dépendantes de N² sont ajoutés par
+    [`zig-wasm-nxn.md`](zig-wasm-nxn.md).
 *   **Recherche MCTS/PUCT.**
 *   **Les autres formats que Moka accepte** (définis dans « Architecture du
     réseau »). L'outil de build les refuse explicitement.
@@ -807,6 +810,8 @@ Les dépendances sont gérées avec pnpm.
     modèle entier. Aucun poids 19×19 n'existe pour tester ce code.
 *   **Reason for Rejection** : un modèle 19×19 aura presque sûrement d'autres
     têtes. On ne paramètre que `Geometry(N)` et les noyaux.
+*   **Suite** : [`zig-wasm-nxn.md`](zig-wasm-nxn.md) dérive toutes les
+    tailles, têtes comprises, de N lu dans le manifeste au build.
 
 #### Alternative I : un autre traitement du `.bin` et du manifeste
 
@@ -1004,7 +1009,9 @@ Trois critères ont été écartés au profit de l'aller-retour `infer` isolé :
     INT16 ou INT8 sur son taux d'accord avec la v1.
 *   **Têtes et modèle 19×19.** Concevoir des têtes indépendantes de N, par
     exemple par pooling global. Ajouter alors une référence scalaire des noyaux
-    et leurs tests à N = 19.
+    et leurs tests à N = 19. Les tests des noyaux à N = 19 et un modèle
+    19×19 aux têtes dépendantes de N² sont faits dans
+    [`zig-wasm-nxn.md`](zig-wasm-nxn.md).
 *   **Mesure sur mobile et autres navigateurs.** Ajouter au banc un téléphone
     de milieu de gamme, Firefox et WebKit. Moka exige cette mesure sur mobile
     pour son propre WASM (`experiment-log.md:196`, `:205`).

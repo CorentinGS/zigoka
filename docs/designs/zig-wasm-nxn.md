@@ -1,7 +1,7 @@
 # Moteur Zig/WASM en N×N : mesure en 19×19 contre le runtime de Moka
 
 *   **Author:** corenting
-*   **Status:** Approved
+*   **Status:** Implemented
 *   **Date:** 2026-10-30
 
 --------------------------------------------------------------------------------
@@ -325,6 +325,45 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
 *   **J5 :** NX6. Pour `synthetic-19` et `moka-9` : les p50 de Moka et de
     Zig avec et sans Worker, le p50 du tronc, le rapport, la part des têtes,
     la machine, la version de Chromium et le sha256 de chaque modèle.
+
+    Relevé du 2026-10-30 (`pnpm bench --model synthetic-19 --verdict`, fichier
+    `bench/results/2026-10-30T18-38-44-464Z.json`, non versionné), sur un
+    AMD Ryzen 7 8845HS, Chromium 156.0.8078.4, Node 24.22.1. Chaque valeur est
+    la médiane des p50 de 5 tours, en ms, à `count = 1` :
+
+    | | `synthetic-19` | `moka-9` |
+    | --- | --- | --- |
+    | Taille du plateau | 19 | 9 |
+    | sha256 | `55f33968b08da4b255dbf04a6f468efe1691cce4bc258498e8f8c73dd44ebb44` | `35c1e51cc9518a21e2f81cded7f69f41d22c80ca05522ed5e4056cb26d9ed053` |
+    | Moka, Worker | 28,830 | 6,400 |
+    | Moka, sans Worker | 28,590 | 6,240 |
+    | Zig, Worker | 1,990 | 0,380 |
+    | Zig, sans Worker | 1,980 | 0,335 |
+    | Zig, tronc seul | 1,535 | 0,310 |
+    | Rapport (Moka / Zig, Worker) | 14,49 | 16,84 |
+    | Part des têtes | 22,5 % | 7,5 % |
+    | Dérive de Moka contre `baseline-<id>.json` | sans référence | −16,5 % |
+
+    *   **Verdict : NX6 passe**, avec un rapport de 14,49 pour un seuil de 2.
+        La règle d'arrêt de G4 ne s'applique pas : le design PUCT peut être
+        écrit pour N×N.
+    *   **Livrable pour PUCT :** en 19×19, 1,535 ms pour le tronc seul (le
+        chiffre représentatif) et 1,990 ms pour l'inférence complète via le
+        Worker (la borne haute).
+    *   Le contrôle `moka-9` donne 16,84, proche des 16,16 de la phase 1 du
+        premier design. La dérive de Moka reste sous le seuil d'alerte de
+        20 %.
+    *   La part des têtes n'est pas stable d'une session à l'autre : le run
+        de J4, sur le même code, donnait 28,9 % pour `synthetic-19` et
+        15,8 % pour `moka-9` (rapports 15,36 et 15,46). Elle est la
+        différence de deux p50 proches, et l'écart de moins de 0,1 ms en
+        9×9 est du même ordre que le bruit entre tours. Seul son ordre de
+        grandeur sert : les têtes pèsent plus en 19×19, ce qui va dans le
+        sens de l'hypothèse de NX6 (le rapport sur l'inférence complète
+        minore celui du tronc), sans la mesurer.
+    *   Le rapport compare ce moteur au runtime TypeScript de Moka, et non à
+        tout JavaScript ; les têtes de `synthetic-19` sont générées, ce qui
+        ne change pas le coût du calcul mais ne dit rien de la force de jeu.
 
 ## Open Questions
 
