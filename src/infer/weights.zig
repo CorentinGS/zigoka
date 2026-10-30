@@ -43,6 +43,35 @@ pub fn dequantize(bin: []const u8, out: []f32) void {
     }
 }
 
+fn dequantizeValue(tensor: model_layout.Tensor, bin: []const u8, index: usize) f32 {
+    return switch (tensor.kind) {
+        .float32 => readF32(bin, tensor.data_offset + 4 * index),
+        inline .int8, .int16 => |kind| readQuantized(kind, bin, tensor.data_offset, index) *
+            readF32(bin, tensor.scale_offset.? + 4 * (index / (tensor.len / tensor.shape[0]))),
+    };
+}
+
+/// Stores each linear tensor `[in][out]` instead of `[out][in]`, by dequantizing it again from
+/// `bin` so that no scratch buffer is needed.
+pub fn transposeLinear(bin: []const u8, weights: []f32) void {
+    std.debug.assert(bin.len == model_layout.WEIGHTS_BYTES);
+    std.debug.assert(weights.len == model_layout.WEIGHTS_F32_LEN);
+    for (model_layout.TENSORS) |tensor| {
+        switch (tensor.layout) {
+            .linear => {},
+            .conv3x3, .conv1x1, .bias => continue,
+        }
+        const outputs = tensor.shape[0];
+        const inputs = tensor.len / outputs;
+        const values = weights[tensor.f32_offset..][0..tensor.len];
+        for (0..outputs) |output| {
+            for (0..inputs) |input| {
+                values[input * outputs + output] = dequantizeValue(tensor, bin, output * inputs + input);
+            }
+        }
+    }
+}
+
 pub fn reorder(weights: []f32, tmp: []f32) void {
     std.debug.assert(weights.len == model_layout.WEIGHTS_F32_LEN);
     for (model_layout.TENSORS) |tensor| {
@@ -70,6 +99,7 @@ pub fn reorder(weights: []f32, tmp: []f32) void {
 pub fn load() void {
     dequantize(&buffers.weights_bin, &buffers.weights_f32);
     reorder(&buffers.weights_f32, &buffers.reorder_tmp);
+    transposeLinear(&buffers.weights_bin, &buffers.weights_f32);
     loaded = true;
 }
 
@@ -166,6 +196,37 @@ test "reorder moves convolution weights to [tap][in][out] and leaves the rest al
     }
 }
 
+test "transposeLinear moves linear weights to [in][out] and leaves the rest alone" {
+    const original = try testing.allocator.alloc(f32, model_layout.WEIGHTS_F32_LEN);
+    defer testing.allocator.free(original);
+    const transposed = try testing.allocator.alloc(f32, model_layout.WEIGHTS_F32_LEN);
+    defer testing.allocator.free(transposed);
+
+    dequantize(go_model_bin, original);
+    @memcpy(transposed, original);
+    transposeLinear(go_model_bin, transposed);
+
+    for (model_layout.TENSORS) |tensor| {
+        const before = original[tensor.f32_offset..][0..tensor.len];
+        const after = transposed[tensor.f32_offset..][0..tensor.len];
+        switch (tensor.layout) {
+            .conv3x3, .conv1x1, .bias => try testing.expectEqualSlices(f32, before, after),
+            .linear => {
+                const outputs = tensor.shape[0];
+                const inputs = tensor.len / outputs;
+                for (0..outputs) |output| {
+                    for (0..inputs) |input| {
+                        try testing.expectEqual(
+                            @as(u32, @bitCast(before[output * inputs + input])),
+                            @as(u32, @bitCast(after[input * outputs + output])),
+                        );
+                    }
+                }
+            },
+        }
+    }
+}
+
 test "load fills the static weights and marks them loaded" {
     @memcpy(&buffers.weights_bin, go_model_bin);
     loaded = false;
@@ -177,5 +238,6 @@ test "load fills the static weights and marks them loaded" {
     var tmp: [buffers.REORDER_TMP_LEN]f32 = undefined;
     dequantize(go_model_bin, expected);
     reorder(expected, &tmp);
+    transposeLinear(go_model_bin, expected);
     try testing.expectEqualSlices(u32, @ptrCast(expected), @ptrCast(&buffers.weights_f32));
 }

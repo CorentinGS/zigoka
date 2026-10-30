@@ -416,9 +416,41 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
         J5 : la machine allait plus vite. Seule la comparaison entre ces deux
         sessions vaut, pas avec les chiffres de J5.
     *   Il reste environ 0,19 ms de têtes pour 0,6 M d'opérations. Chaque
-        colonne lit encore 4 poids isolés, un par ligne. Ranger les poids des
-        têtes en `[in][out]` au chargement permettrait des lectures
-        contiguës ; ce n'est pas fait.
+        colonne lit encore 4 poids isolés, un par ligne : c'est l'objet de
+        l'entrée suivante.
+*   **Poids des têtes en `[in][out]`** (après J5). Au chargement,
+    `weights.transposeLinear` déquantifie une seconde fois chaque tenseur
+    linéaire depuis le `.bin`, directement dans l'ordre `[in][out]`. Il
+    n'utilise pas de tampon : le tampon de réordonnancement est dimensionné
+    pour les convolutions, et y loger `policy.linear` aurait fait dépasser
+    13 pages à `moka-9` (NX7). `dense.linear` parcourt les entrées dans
+    l'ordre et met à jour toutes les sommes par vecteurs de 4 f64, avec des
+    lectures contiguës de 4 f32. Chaque somme garde l'ordre d'additions de
+    Moka : sorties identiques bit à bit. 8 voies ne font pas mieux que 4
+    dans Node, 2 voies font moins bien. Sans vecteurs explicites, la même
+    boucle n'est pas vectorisée et ne gagne rien.
+
+    Deux sessions consécutives, l'une avec le changement, l'autre avec la
+    version à 4 lignes (fichiers `bench/results/2026-10-30T20-03-19-144Z.json`
+    et `2026-10-30T20-05-04-842Z.json`, non versionnés) :
+
+    | Médiane des p50 | 19×19 avant | 19×19 après | 9×9 avant | 9×9 après |
+    | --- | --- | --- | --- | --- |
+    | Moka, Worker | 26,325 ms | 26,245 ms | 5,675 ms | 5,665 ms |
+    | Zig, Worker | 1,495 ms | 1,415 ms | 0,330 ms | 0,335 ms |
+    | Zig, sans Worker | 1,460 ms | 1,355 ms | 0,300 ms | 0,295 ms |
+    | Zig, tronc seul | 1,265 ms | 1,260 ms | 0,285 ms | 0,285 ms |
+    | Rapport Moka / Zig | 17,61 | 18,55 | 17,20 | 16,91 |
+
+    *   En 19×19, les têtes passent d'environ 0,195 ms à 0,095 ms, et
+        l'inférence complète via le Worker gagne 5 %. Depuis la version à
+        une chaîne par sortie, les têtes sont passées d'environ 0,37 ms à
+        0,095 ms. Le 9×9 ne change pas au-delà du bruit.
+    *   Le temps d'initialisation de Zig ne change pas de façon visible
+        (8 à 15 ms dans les deux sessions).
+    *   Moka est 26 % plus rapide que `baseline-moka-9.json` dans ces deux
+        sessions ; comme pour l'entrée précédente, seule la comparaison
+        entre ces deux sessions vaut.
 
 ## Open Questions
 

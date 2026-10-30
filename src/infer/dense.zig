@@ -18,32 +18,32 @@ pub fn poolMeanMax(comptime area: usize, comptime channels: usize, values: []con
     }
 }
 
-const LINEAR_ROWS = 4;
-const RowSums = @Vector(LINEAR_ROWS, f64);
+const LINEAR_LANES = 4;
+const Sums = @Vector(LINEAR_LANES, f64);
+const Weights = @Vector(LINEAR_LANES, f32);
 
 /// `out = bias + weights · input`, accumulated in f64 and stored in f32, like Moka's `applyLinear`.
-/// `weights` keep the `[out][in]` layout of the manifest. Rows are computed `LINEAR_ROWS` at a
-/// time so their sums run in parallel; each row keeps Moka's order of additions.
+/// `weights` are stored `[in][out]` (see `weights.transposeLinear`): each input updates every sum
+/// with contiguous reads, and each sum keeps Moka's order of additions.
 pub fn linear(comptime inputs: usize, comptime outputs: usize, input: []const f32, weights: []const f32, bias: []const f32, out: []f32) void {
     std.debug.assert(input.len == inputs and weights.len == inputs * outputs);
-    const blocked = outputs - outputs % LINEAR_ROWS;
-    var first: usize = 0;
-    while (first < blocked) : (first += LINEAR_ROWS) {
-        var sums: RowSums = undefined;
-        inline for (0..LINEAR_ROWS) |row| sums[row] = bias[first + row];
-        for (input[0..inputs], 0..) |x, column| {
-            var row_weights: RowSums = undefined;
-            inline for (0..LINEAR_ROWS) |row| row_weights[row] = weights[(first + row) * inputs + column];
-            sums += @as(RowSums, @splat(@as(f64, x))) * row_weights;
+    const blocks = outputs / LINEAR_LANES;
+    const blocked = blocks * LINEAR_LANES;
+    var sums: [blocks]Sums = undefined;
+    var tail: [outputs - blocked]f64 = undefined;
+    for (&sums, 0..) |*sum, block| sum.* = @floatCast(@as(Weights, bias[block * LINEAR_LANES ..][0..LINEAR_LANES].*));
+    for (&tail, bias[blocked..outputs]) |*sum, b| sum.* = b;
+    for (input[0..inputs], 0..) |x, column| {
+        const row = weights[column * outputs ..][0..outputs];
+        const factor: Sums = @splat(x);
+        for (&sums, 0..) |*sum, block| {
+            const w: Weights = row[block * LINEAR_LANES ..][0..LINEAR_LANES].*;
+            sum.* += factor * @as(Sums, @floatCast(w));
         }
-        inline for (0..LINEAR_ROWS) |row| out[first + row] = @floatCast(sums[row]);
+        for (&tail, row[blocked..]) |*sum, w| sum.* += @as(f64, x) * @as(f64, w);
     }
-    for (blocked..outputs) |output| {
-        const row = weights[output * inputs ..][0..inputs];
-        var sum: f64 = bias[output];
-        for (input[0..inputs], row) |x, w| sum += @as(f64, x) * @as(f64, w);
-        out[output] = @floatCast(sum);
-    }
+    for (sums, 0..) |sum, block| out[block * LINEAR_LANES ..][0..LINEAR_LANES].* = @as(Weights, @floatCast(sum));
+    for (out[blocked..outputs], tail) |*value, sum| value.* = @floatCast(sum);
 }
 
 pub fn reluInPlace(values: []f32) void {
@@ -75,9 +75,9 @@ test "linear accumulates in f64 before rounding to f32" {
     try testing.expectEqual(@as(f32, @floatCast(@as(f64, @as(f32, 1.0e-8)))), out[0]);
 }
 
-test "linear gives the same bits as one sequential sum per row" {
+test "linear gives the same bits as one sequential sum per output" {
     const inputs = 13;
-    const outputs = 2 * LINEAR_ROWS + 3;
+    const outputs = 11;
     var prng = std.Random.DefaultPrng.init(19);
     const random = prng.random();
     var input: [inputs]f32 = undefined;
@@ -90,7 +90,7 @@ test "linear gives the same bits as one sequential sum per row" {
     linear(inputs, outputs, &input, &weights, &bias, &out);
     for (0..outputs) |output| {
         var sum: f64 = bias[output];
-        for (0..inputs) |column| sum += @as(f64, input[column]) * @as(f64, weights[output * inputs + column]);
+        for (0..inputs) |column| sum += @as(f64, input[column]) * @as(f64, weights[column * outputs + output]);
         try testing.expectEqual(@as(u32, @bitCast(@as(f32, @floatCast(sum)))), @as(u32, @bitCast(out[output])));
     }
 }
