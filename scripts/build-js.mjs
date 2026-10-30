@@ -23,6 +23,10 @@ const browserBundles = [
     entryPoints: [resolve("js/worker.ts")],
     outfile: resolve("dist/worker.js"),
   },
+  {
+    entryPoints: [resolve("tests/e2e/page.ts")],
+    outfile: resolve("tests/e2e/dist/page.js"),
+  },
 ];
 
 const nodeBundles = [

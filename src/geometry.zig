@@ -72,3 +72,29 @@ test "Geometry(9) every interior point has nine on-board neighbors" {
         }
     }
 }
+
+const G19 = Geometry(19);
+const S19 = G19.SENTINEL;
+
+test "Geometry(19) sizes" {
+    try std.testing.expectEqual(@as(u16, 361), G19.AREA);
+    try std.testing.expectEqual(@as(u16, 361), G19.SENTINEL);
+}
+
+test "Geometry(19) corners" {
+    try std.testing.expectEqual([9]u16{ S19, S19, S19, S19, 0, 1, S19, 19, 20 }, G19.CONV_NEIGHBORS[0]);
+    try std.testing.expectEqual([9]u16{ S19, S19, S19, 17, 18, S19, 36, 37, S19 }, G19.CONV_NEIGHBORS[18]);
+    try std.testing.expectEqual([9]u16{ S19, 323, 324, S19, 342, 343, S19, S19, S19 }, G19.CONV_NEIGHBORS[342]);
+    try std.testing.expectEqual([9]u16{ 340, 341, S19, 359, 360, S19, S19, S19, S19 }, G19.CONV_NEIGHBORS[360]);
+}
+
+test "Geometry(19) edges" {
+    try std.testing.expectEqual([9]u16{ S19, S19, S19, 8, 9, 10, 27, 28, 29 }, G19.CONV_NEIGHBORS[9]);
+    try std.testing.expectEqual([9]u16{ S19, 152, 153, S19, 171, 172, S19, 190, 191 }, G19.CONV_NEIGHBORS[171]);
+    try std.testing.expectEqual([9]u16{ 169, 170, S19, 188, 189, S19, 207, 208, S19 }, G19.CONV_NEIGHBORS[189]);
+    try std.testing.expectEqual([9]u16{ 331, 332, 333, 350, 351, 352, S19, S19, S19 }, G19.CONV_NEIGHBORS[351]);
+}
+
+test "Geometry(19) center" {
+    try std.testing.expectEqual([9]u16{ 160, 161, 162, 179, 180, 181, 198, 199, 200 }, G19.CONV_NEIGHBORS[180]);
+}

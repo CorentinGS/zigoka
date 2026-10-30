@@ -5,6 +5,8 @@ dist/
 bench/dist/
 oracle/dist/
 tests/e2e/dist/
+test-results/
+playwright-report/
 
 # Dependencies
 node_modules/

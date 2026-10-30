@@ -42,8 +42,20 @@ comptime {
     }
 }
 
-pub const Kind = enum { int8, float32 };
+pub const Kind = enum { int8, int16, float32 };
 pub const Layout = enum { conv3x3, conv1x1, linear, bias };
+
+fn isQuantized(kind: Kind) bool {
+    return kind != .float32;
+}
+
+fn elementBytes(kind: Kind) u32 {
+    return switch (kind) {
+        .int8 => 1,
+        .int16 => 2,
+        .float32 => 4,
+    };
+}
 
 pub const Tensor = struct {
     name: []const u8,
@@ -254,13 +266,12 @@ pub fn analyze(arena: Allocator, manifest: json.Value, weights: []const u8, diag
         const tensor = getObject(entry.value_ptr.*) orelse
             return fail(arena, diagnostic, error.InvalidManifest, "tensor {s} is not an object", .{name});
         const dtype = getString(getField(tensor, "dtype")) orelse "";
-        if (!std.mem.eql(u8, dtype, "int8") and !std.mem.eql(u8, dtype, "float32")) {
+        const kind = std.meta.stringToEnum(Kind, dtype) orelse
             return fail(arena, diagnostic, error.UnsupportedDtype, "tensor {s} has unsupported dtype \"{s}\"", .{ name, dtype });
-        }
         if (getField(tensor, "quantizationGroupSize") != null) {
             return fail(arena, diagnostic, error.UnsupportedQuantizationGroup, "tensor {s} uses quantizationGroupSize", .{name});
         }
-        if (std.mem.eql(u8, dtype, "int8") and getField(tensor, "scaleOffset") == null) {
+        if (isQuantized(kind) and getField(tensor, "scaleOffset") == null) {
             return fail(arena, diagnostic, error.MissingScale, "Missing quantization scale for {s}.", .{name});
         }
     }
@@ -290,15 +301,15 @@ pub fn analyze(arena: Allocator, manifest: json.Value, weights: []const u8, diag
         var len: u32 = 1;
         for (want.shape) |dimension| len *= dimension;
 
-        const kind: Kind = if (std.mem.eql(u8, getString(getField(tensor, "dtype")).?, "int8")) .int8 else .float32;
+        const kind = std.meta.stringToEnum(Kind, getString(getField(tensor, "dtype")).?).?;
         const data_offset = getU32(getField(tensor, "dataOffset")) orelse
             return fail(arena, diagnostic, error.InvalidManifest, "tensor {s} has no valid dataOffset", .{want.name});
-        const data_bytes: u64 = if (kind == .int8) len else @as(u64, len) * 4;
+        const data_bytes = @as(u64, len) * elementBytes(kind);
         if (data_offset + data_bytes > weights_bytes) {
             return fail(arena, diagnostic, error.OutOfBounds, "tensor {s} data ends past weightsBytes", .{want.name});
         }
         var scale_offset: ?u32 = null;
-        if (kind == .int8) {
+        if (isQuantized(kind)) {
             const offset = getU32(getField(tensor, "scaleOffset")) orelse
                 return fail(arena, diagnostic, error.InvalidManifest, "tensor {s} has no valid scaleOffset", .{want.name});
             if (offset + @as(u64, want.shape[0]) * 4 > weights_bytes) {
@@ -363,7 +374,7 @@ pub fn render(writer: *std.Io.Writer, model: Model) std.Io.Writer.Error!void {
     }
     try writer.writeAll(
         \\};
-        \\pub const Kind = enum { int8, float32 };
+        \\pub const Kind = enum { int8, int16, float32 };
         \\pub const Layout = enum { conv3x3, conv1x1, linear, bias };
         \\pub const Tensor = struct {
         \\    name: []const u8,
@@ -493,6 +504,41 @@ fn expectRejected(expected: Error, mutate: *const fn (Allocator, *json.Value) an
     var diagnostic: Diagnostic = .{};
     try testing.expectError(expected, analyze(arena, manifest, real_weights, &diagnostic));
     try testing.expect(diagnostic.message.len > 0);
+}
+
+test "an int16 tensor is accepted and spans two bytes per value" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var manifest = try parseReal(arena);
+    try tensorObject(&manifest, "stem.weight").put(arena, "dtype", .{ .string = "int16" });
+    var diagnostic: Diagnostic = .{};
+    const model = try analyze(arena, manifest, real_weights, &diagnostic);
+    try testing.expectEqual(Kind.int16, model.tensors[0].kind);
+    try testing.expect(model.tensors[0].scale_offset != null);
+
+    var output: std.Io.Writer.Allocating = .init(arena);
+    try render(&output.writer, model);
+    try testing.expect(std.mem.indexOf(u8, output.written(), ".kind = .int16") != null);
+}
+
+test "an int16 tensor whose two-byte values end past the weights is rejected" {
+    try expectRejected(error.OutOfBounds, struct {
+        fn mutate(arena: Allocator, manifest: *json.Value) !void {
+            try tensorObject(manifest, "value.output.weight").put(arena, "dtype", .{ .string = "int16" });
+        }
+    }.mutate);
+}
+
+test "an int16 tensor without scale is rejected" {
+    try expectRejected(error.MissingScale, struct {
+        fn mutate(arena: Allocator, manifest: *json.Value) !void {
+            const tensor = tensorObject(manifest, "stem.weight");
+            try tensor.put(arena, "dtype", .{ .string = "int16" });
+            _ = tensor.orderedRemove("scaleOffset");
+        }
+    }.mutate);
 }
 
 test "an int4 tensor is rejected" {

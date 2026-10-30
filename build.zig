@@ -36,40 +36,13 @@ pub fn build(b: *std.Build) void {
         .os_tag = .freestanding,
         .cpu_features_add = std.Target.wasm.featureSet(&.{.simd128}),
     });
-    const wasm_model_layout = b.createModule(.{
-        .root_source_file = model_layout_source,
-        .target = wasm_target,
-        .optimize = .ReleaseFast,
-    });
-    const wasm_geometry = b.createModule(.{
-        .root_source_file = b.path("src/geometry.zig"),
-        .target = wasm_target,
-        .optimize = .ReleaseFast,
-    });
-    const wasm = b.addExecutable(.{
-        .name = "infer",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/infer/exports.zig"),
-            .target = wasm_target,
-            .optimize = .ReleaseFast,
-            .strip = true,
-            .imports = &.{
-                .{ .name = "model_layout", .module = wasm_model_layout },
-                .{ .name = "geometry", .module = wasm_geometry },
-                .{ .name = "memory_config", .module = memory_options.createModule() },
-            },
-        }),
-    });
-    wasm.entry = .disabled;
-    wasm.rdynamic = true;
-    wasm.import_memory = false;
-    wasm.export_memory = true;
-    wasm.initial_memory = WASM_MEMORY_PAGES * WASM_PAGE_BYTES;
-    wasm.max_memory = WASM_MEMORY_PAGES * WASM_PAGE_BYTES;
-    wasm.stack_size = WASM_STACK_BYTES;
+    const memory_config = memory_options.createModule();
 
     const wasm_step = b.step("wasm", "Build zig-out/bin/infer.wasm");
-    wasm_step.dependOn(&b.addInstallArtifact(wasm, .{}).step);
+    wasm_step.dependOn(&addInferWasm(b, "infer", .ReleaseFast, wasm_target, model_layout_source, memory_config).step);
+
+    const wasm_safe_step = b.step("wasm-safe", "Build zig-out/bin/infer-safe.wasm (ReleaseSafe)");
+    wasm_safe_step.dependOn(&addInferWasm(b, "infer-safe", .ReleaseSafe, wasm_target, model_layout_source, memory_config).step);
 
     const test_options = b.addOptions();
     const fixtures_path = if (std.fs.path.isAbsolute(fixtures)) b.graph.cwdRelativePath(fixtures) else b.path(fixtures);
@@ -110,4 +83,44 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(geometry_tests).step);
     test_step.dependOn(&b.addRunArtifact(src_tests).step);
     test_step.dependOn(&b.addRunArtifact(tool_tests).step);
+}
+
+fn addInferWasm(
+    b: *std.Build,
+    name: []const u8,
+    optimize: std.builtin.OptimizeMode,
+    target: std.Build.ResolvedTarget,
+    model_layout_source: std.Build.LazyPath,
+    memory_config: *std.Build.Module,
+) *std.Build.Step.InstallArtifact {
+    const wasm = b.addExecutable(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/infer/exports.zig"),
+            .target = target,
+            .optimize = optimize,
+            .strip = true,
+            .imports = &.{
+                .{ .name = "model_layout", .module = b.createModule(.{
+                    .root_source_file = model_layout_source,
+                    .target = target,
+                    .optimize = optimize,
+                }) },
+                .{ .name = "geometry", .module = b.createModule(.{
+                    .root_source_file = b.path("src/geometry.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                }) },
+                .{ .name = "memory_config", .module = memory_config },
+            },
+        }),
+    });
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+    wasm.import_memory = false;
+    wasm.export_memory = true;
+    wasm.initial_memory = WASM_MEMORY_PAGES * WASM_PAGE_BYTES;
+    wasm.max_memory = WASM_MEMORY_PAGES * WASM_PAGE_BYTES;
+    wasm.stack_size = WASM_STACK_BYTES;
+    return b.addInstallArtifact(wasm, .{});
 }

@@ -1,15 +1,32 @@
 import { createEngine, type Engine } from "./engine.ts";
+import { describeLoadError } from "./load-error.ts";
 
-const WASM_LOAD_ERROR = "Failed to load infer.wasm.";
-
-const compileInferModule = async () => {
+const fetchInferBytes = async () => {
   const response = await fetch(new URL("./infer.wasm", import.meta.url));
 
   if (!response.ok) {
-    throw new Error(WASM_LOAD_ERROR);
+    throw new Error(`infer.wasm answered ${response.status}.`);
   }
 
-  return WebAssembly.compile(await response.arrayBuffer());
+  return response.arrayBuffer();
+};
+
+const compileInferModule = async () => {
+  let bytes: ArrayBuffer;
+
+  try {
+    bytes = await fetchInferBytes();
+  } catch {
+    throw new Error(describeLoadError({ fetchFailed: true, simdValid: false }));
+  }
+
+  try {
+    return await WebAssembly.compile(bytes);
+  } catch {
+    throw new Error(
+      describeLoadError({ fetchFailed: false, simdValid: WebAssembly.validate(bytes) }),
+    );
+  }
 };
 
 const inferModule = compileInferModule();
@@ -18,21 +35,13 @@ inferModule.catch(() => undefined);
 let engine: Engine | null = null;
 let pendingMessages: Promise<void> = Promise.resolve();
 
-const loadInferModule = async () => {
-  try {
-    return await inferModule;
-  } catch {
-    throw new Error(WASM_LOAD_ERROR);
-  }
-};
-
 const handleMessage = async (
   message: GoModelWorkerInferenceMessage | GoModelWorkerInitializeMessage,
 ) => {
   try {
     if (message.type === "initialize") {
       engine = null;
-      engine = await createEngine(await loadInferModule(), message.weightsBuffer);
+      engine = await createEngine(await inferModule, message.weightsBuffer);
       const response: GoModelWorkerReadyMessage = {
         requestId: message.requestId,
         type: "ready",

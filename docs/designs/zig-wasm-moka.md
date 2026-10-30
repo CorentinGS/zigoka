@@ -225,6 +225,17 @@ Node v24.22.1, Zig 0.17.0. Les valeurs ne valent que pour cette machine.
         7,665 ms), au-delà de l'alerte de 20 %. Le verdict reste celui de la
         mesure du jour, où les deux moteurs tournent dans la même exécution ;
         avec la référence de S0, le rapport serait plus élevé encore.
+*   **S4 — `infer.wasm`** : 19 097 octets, 6 698 octets après gzip ; les
+    52 octets en plus viennent de la lecture des tenseurs `int16`.
+    `infer-safe.wasm` (`ReleaseSafe`) fait 19 522 octets et donne les mêmes
+    résultats bit à bit sur les deux jeux. Le plafond écrit dans
+    `tests/wasm-checks.test.mjs` est de 32 Kio après gzip.
+*   **S4 — CSP dans Chromium 156** : avec `script-src 'self'` sur la réponse
+    de `worker.js`, la compilation est bloquée dans le Worker, et
+    `WebAssembly.validate` y renvoie toujours `true`, ce qui donne le message
+    CSP. Avec la même CSP sur la page seule, la page ne peut pas compiler de
+    WASM, mais le Worker compile normalement : c'est la CSP de la réponse de
+    `worker.js` qui s'applique au Worker.
 
 ## Open Questions
 
@@ -243,11 +254,10 @@ Node v24.22.1, Zig 0.17.0. Les valeurs ne valent que pour cette machine.
 *   **Version exacte de Zig.** Résolu en S1 : Zig 0.17.0, la dernière
     version stable au 2026-10-30. Elle est écrite dans `mise.toml` et dans
     `minimum_zig_version` de `build.zig.zon`.
-*   **Quelle CSP Chromium applique au Worker.** D'après la spécification
-    HTML, un Worker dédié chargé en http(s) reçoit la CSP des en-têtes de
-    `worker.js`, et non celle de la page. Ce point sera vérifié en S4 par les
-    tests e2e (fichier 36), et le résultat sera écrit dans le CUJ 2 et le
-    README. Il ne sert qu'à l'intégration, donc pas au verdict G4.
+*   **Quelle CSP Chromium applique au Worker.** Résolu en S4 par les tests
+    e2e (fichier 36) : Chromium applique au Worker la CSP des en-têtes de
+    `worker.js`, et non celle de la page, comme le prévoit la spécification
+    HTML (voir « Mesures enregistrées »). Le CUJ 2 et le README le disent.
 
 ## Critical User Journeys (CUJs)
 
@@ -269,8 +279,8 @@ Node v24.22.1, Zig 0.17.0. Les valeurs ne valent que pour cette machine.
     que la page), et remplace l'URL du Worker par celle du projet. Si le
     serveur envoie une CSP avec `worker.js`, elle doit autoriser
     `'wasm-unsafe-eval'` dans `script-src`. Pour un Worker chargé en http(s),
-    c'est cette CSP qui s'applique, et non celle de la page (à confirmer dans
-    Chromium, voir Open Questions).
+    c'est cette CSP qui s'applique, et non celle de la page ; les tests e2e
+    le vérifient dans Chromium.
 *   **Then** :
     *   `initialize` réussit ;
     *   `infer` renvoie `{ policyLogits: Float32Array(82), value }` dans le même
@@ -1118,12 +1128,14 @@ peut couvrir plusieurs fichiers, et « fichier 28 » se lit « entrée 28 ».
         | `setup:browser` | `playwright install chromium` |
         | `build:js` | `node scripts/build-js.mjs` |
         | `gen` | `zig build gen` |
-        | `build` | `zig build wasm`, puis `pnpm build:js` |
+        | `build` | `zig build wasm wasm-safe`, puis `pnpm build:js` (`wasm-safe` depuis S4) |
         | `oracle` | `pnpm build:js`, puis `node oracle/dist/generate.js` |
         | `oracle:check` | `pnpm build:js`, puis `node oracle/dist/generate.js --check` |
         | `calibrate` | `pnpm build:js`, puis `node oracle/dist/calibrate.js` |
-        | `test` | `zig build test`, puis `zig build wasm`, puis `node --test "tests/*.test.mjs" "tests/*.test.ts"` |
+        | `test` | `zig build test`, puis `zig build wasm wasm-safe`, puis `node --test "tests/*.test.mjs" "tests/*.test.ts"` |
+        | `test:e2e` | `playwright test` (S4) |
         | `bench` | `zig build wasm`, puis `pnpm build:js`, puis `node bench/run.mjs` |
+        | `check:all` | `gen`, `build`, `oracle`, `oracle:check`, `test`, puis `test:e2e` (S4) |
 
         Les options se passent sans `--` (`pnpm bench --baseline`), car pnpm
         transmet les arguments au script.

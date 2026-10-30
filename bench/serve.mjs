@@ -33,28 +33,38 @@ const readPortArgument = () => {
   return port;
 };
 
-const SERVED_DIRECTORIES = ["bench", "dist"];
+const SERVED_DIRECTORIES = new Map([
+  ["bench", "bench"],
+  ["dist", "dist"],
+  ["e2e", path.join("tests", "e2e")],
+]);
+const STRICT_CSP = "script-src 'self'";
 
-const resolveRequestPath = (requestUrl) => {
-  let urlPath;
-
+const parseRequestUrl = (requestUrl) => {
   try {
-    urlPath = decodeURIComponent(new URL(requestUrl, "http://localhost").pathname);
+    const url = new URL(requestUrl, "http://localhost");
+
+    return {
+      urlPath: decodeURIComponent(url.pathname),
+      isStrictCsp: url.searchParams.get("csp") === "strict",
+    };
   } catch {
     return null;
   }
+};
 
+const resolveRequestPath = (urlPath) => {
   if (urlPath === "/") {
     return path.join(rootDirectory, "bench", "index.html");
   }
 
-  for (const directory of SERVED_DIRECTORIES) {
-    if (!urlPath.startsWith(`/${directory}/`)) {
+  for (const [prefix, directory] of SERVED_DIRECTORIES) {
+    if (!urlPath.startsWith(`/${prefix}/`)) {
       continue;
     }
 
     const servedDirectory = path.join(rootDirectory, directory);
-    const resolved = path.resolve(rootDirectory, urlPath.slice(1));
+    const resolved = path.resolve(servedDirectory, urlPath.slice(prefix.length + 2));
 
     return resolved.startsWith(`${servedDirectory}${path.sep}`) ? resolved : null;
   }
@@ -62,13 +72,14 @@ const resolveRequestPath = (requestUrl) => {
   return null;
 };
 
-const send = (response, statusCode, contentType, content) => {
+const send = (response, statusCode, contentType, content, isStrictCsp = false) => {
   response.writeHead(statusCode, {
     "Content-Type": contentType,
     "Content-Length": content.length,
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
     "Cross-Origin-Resource-Policy": "same-origin",
+    ...(isStrictCsp ? { "Content-Security-Policy": STRICT_CSP } : {}),
   });
   response.end(content);
 };
@@ -79,7 +90,8 @@ const serve = (request, response) => {
     return;
   }
 
-  const filePath = resolveRequestPath(request.url ?? "/");
+  const requestUrl = parseRequestUrl(request.url ?? "/");
+  const filePath = requestUrl ? resolveRequestPath(requestUrl.urlPath) : null;
 
   if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     send(response, 404, "text/plain; charset=utf-8", Buffer.from("Not found."));
@@ -89,7 +101,7 @@ const serve = (request, response) => {
   const contentType = MIME_TYPES.get(path.extname(filePath)) ?? "application/octet-stream";
   const content = fs.readFileSync(filePath);
 
-  send(response, 200, contentType, content);
+  send(response, 200, contentType, content, requestUrl.isStrictCsp);
 };
 
 const port = readPortArgument();

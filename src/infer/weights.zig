@@ -8,25 +8,38 @@ fn readF32(bytes: []const u8, offset: usize) f32 {
     return @bitCast(std.mem.readInt(u32, bytes[offset..][0..4], .little));
 }
 
+fn readQuantized(comptime kind: model_layout.Kind, bin: []const u8, data_offset: usize, index: usize) f32 {
+    return switch (kind) {
+        .int8 => @floatFromInt(@as(i8, @bitCast(bin[data_offset + index]))),
+        .int16 => @floatFromInt(std.mem.readInt(i16, bin[data_offset + 2 * index ..][0..2], .little)),
+        .float32 => @compileError("float32 tensors are not quantized"),
+    };
+}
+
+fn dequantizeQuantized(comptime kind: model_layout.Kind, tensor: model_layout.Tensor, bin: []const u8, values: []f32) void {
+    const scale_offset = tensor.scale_offset.?;
+    const per_output = tensor.len / tensor.shape[0];
+    for (values, 0..) |*value, index| {
+        const scale = readF32(bin, scale_offset + 4 * (index / per_output));
+        value.* = readQuantized(kind, bin, tensor.data_offset, index) * scale;
+    }
+}
+
+fn dequantizeTensor(tensor: model_layout.Tensor, bin: []const u8, values: []f32) void {
+    switch (tensor.kind) {
+        .float32 => for (values, 0..) |*value, index| {
+            value.* = readF32(bin, tensor.data_offset + 4 * index);
+        },
+        .int8 => dequantizeQuantized(.int8, tensor, bin, values),
+        .int16 => dequantizeQuantized(.int16, tensor, bin, values),
+    }
+}
+
 pub fn dequantize(bin: []const u8, out: []f32) void {
     std.debug.assert(bin.len == model_layout.WEIGHTS_BYTES);
     std.debug.assert(out.len == model_layout.WEIGHTS_F32_LEN);
     for (model_layout.TENSORS) |tensor| {
-        const values = out[tensor.f32_offset..][0..tensor.len];
-        switch (tensor.kind) {
-            .float32 => for (values, 0..) |*value, index| {
-                value.* = readF32(bin, tensor.data_offset + 4 * index);
-            },
-            .int8 => {
-                const scale_offset = tensor.scale_offset.?;
-                const per_output = tensor.len / tensor.shape[0];
-                for (values, 0..) |*value, index| {
-                    const quantized: i8 = @bitCast(bin[tensor.data_offset + index]);
-                    const scale = readF32(bin, scale_offset + 4 * (index / per_output));
-                    value.* = @as(f32, @floatFromInt(quantized)) * scale;
-                }
-            },
-        }
+        dequantizeTensor(tensor, bin, out[tensor.f32_offset..][0..tensor.len]);
     }
 }
 
@@ -94,6 +107,28 @@ test "dequantized weights are bit for bit those of Moka" {
             }
         }
     }
+}
+
+test "int16 values are read little-endian, negative ones included" {
+    const bin = [_]u8{
+        0x18, 0xfc, 0x01, 0x00,
+        0xff, 0x7f, 0x00, 0x80,
+        0x00, 0x00, 0x00, 0x3f,
+        0x00, 0x00, 0x80, 0x40,
+    };
+    const tensor: model_layout.Tensor = .{
+        .name = "synthetic",
+        .kind = .int16,
+        .layout = .linear,
+        .shape = &.{ 2, 2 },
+        .data_offset = 0,
+        .scale_offset = 8,
+        .f32_offset = 0,
+        .len = 4,
+    };
+    var values: [4]f32 = undefined;
+    dequantizeTensor(tensor, &bin, &values);
+    try testing.expectEqualSlices(f32, &.{ -500, 0.5, 131_068, -131_072 }, &values);
 }
 
 test "reorder moves convolution weights to [tap][in][out] and leaves the rest alone" {
