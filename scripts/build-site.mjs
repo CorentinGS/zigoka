@@ -15,6 +15,8 @@ const publicDirectory = resolve("site/public");
 // 304 when unchanged). A Cloudflare zone in front of the custom domain can still
 // override that and cache for an hour, so every reference also carries a content
 // hash (`?v=`): a new deploy changes the URLs and never meets a stale copy.
+// The site plays the Moka v2 model: its wasm modules are built for its layout.
+const MODEL_ID = "moka-9-v2";
 const PUBLISHED_FILES = [
   ["site/index.html", "index.html"],
   ["site/about.html", "about.html"],
@@ -22,12 +24,12 @@ const PUBLISHED_FILES = [
   ["site/_headers", "_headers"],
   ["site/dist/play.js", "play.js"],
   ["site/dist/engine-worker.js", "engine-worker.js"],
-  ["demo/dist/search.wasm", "search.wasm"],
-  ["dist/infer.wasm", "infer.wasm"],
-  ["dist/go-model.json", "go-model.json"],
-  ["dist/go-model.bin", "go-model.bin"],
-  ["vendor/moka/LICENSE", "moka-license.txt"],
-  ["vendor/moka/THIRD_PARTY_NOTICES.md", "moka-notices.txt"],
+  [`zig-out/${MODEL_ID}/search.wasm`, "search.wasm"],
+  [`zig-out/${MODEL_ID}/infer.wasm`, "infer.wasm"],
+  [`zig-out/models/${MODEL_ID}/go-model.json`, "go-model.json"],
+  [`zig-out/models/${MODEL_ID}/go-model.bin`, "go-model.bin"],
+  ["vendor/moka-v2/LICENSE", "moka-license.txt"],
+  ["vendor/moka-v2/THIRD_PARTY_NOTICES.md", "moka-notices.txt"],
 ];
 
 // The worker gives its own `?v=` to the files it fetches (site/engine-worker.ts).
