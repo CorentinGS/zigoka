@@ -16,9 +16,11 @@
     "models": "pnpm build:js && node oracle/dist/generate-synthetic-model.js",
     "models:check": "pnpm build:js && node oracle/dist/generate-synthetic-model.js --check",
     "test": "zig build test && zig build models wasm wasm-safe wasm-profile search && pnpm build:js && node --test \"tests/*.test.mjs\" \"tests/*.test.ts\"",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/build-site.mjs && playwright test",
     "bench": "zig build models wasm wasm-profile && pnpm build:js && node bench/run.mjs",
     "demo": "pnpm build && node bench/serve.mjs",
+    "site:build": "node scripts/build-site.mjs",
+    "site": "pnpm site:build && node bench/serve.mjs",
     "match": "zig build models wasm search && pnpm build:js && node match/dist/match.js",
     "check:all": "pnpm typecheck && pnpm gen && pnpm build && pnpm models:check && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
     "typecheck": "tsc --noEmit"

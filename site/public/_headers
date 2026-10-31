@@ -1,0 +1,16 @@
+/*
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+
+/engine-worker.js
+  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'
+  Cache-Control: public, max-age=3600
+
+/infer.wasm
+/search.wasm
+  Cache-Control: public, max-age=86400
+
+/go-model.json
+/go-model.bin
+  Cache-Control: public, max-age=86400

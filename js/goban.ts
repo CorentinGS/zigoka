@@ -20,6 +20,8 @@ type GobanView = {
   deadMoves?: number[];
   showCoordinates?: boolean;
   isInteractive?: boolean;
+  hoverMove?: number | null;
+  hoverColor?: number;
 };
 
 const getColorName = (color: number) => (color === GO_BLACK_COLOR ? "black" : "white");
@@ -135,6 +137,23 @@ const renderGoban = (svg: SVGSVGElement, view: GobanView) => {
           }),
         );
       }
+    }
+    if (view.isInteractive && view.hoverMove === move && color === GO_EMPTY_COLOR) {
+      const hoverColor = view.hoverColor ?? GO_BLACK_COLOR;
+      const isHoverBlack = hoverColor === GO_BLACK_COLOR;
+
+      svg.append(
+        createSvgElement("circle", {
+          cx: x,
+          cy: y,
+          r: STONE_RADIUS,
+          fill: isHoverBlack ? "#111" : "#f4f4f0",
+          stroke: "#111",
+          "stroke-width": 1,
+          opacity: 0.5,
+          "data-ghost": getColorName(hoverColor),
+        }),
+      );
     }
 
     if (view.isInteractive) {

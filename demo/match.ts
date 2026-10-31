@@ -11,7 +11,7 @@ import {
   type MatchConfig,
   type PlayerKind,
 } from "../match/games.ts";
-import { formatMove, formatScore, renderGoban } from "./goban.ts";
+import { formatMove, formatScore, renderGoban } from "../js/goban.ts";
 import type { MatchWorkerRequest, MatchWorkerResponse } from "./match-protocol.ts";
 
 const WORKER_URL = "/demo/dist/match-worker.js";

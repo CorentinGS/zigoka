@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zigoka — Go 9×9 contre Moka</title>
+    <meta
+      name="description"
+      content="Zigoka : jouez au Go 9×9 contre le réseau Moka (recherche PUCT en WebAssembly), entièrement dans votre navigateur."
+    />
+    <link rel="stylesheet" href="./site.css" />
+    <script type="module" src="./play.js"></script>
+  </head>
+  <body data-state="loading">
+    <noscript>
+      <p class="warning">
+        Cette page a besoin de JavaScript : le moteur de Go s’exécute dans votre navigateur.
+      </p>
+    </noscript>
+    <main>
+      <header>
+        <h1>Zigoka</h1>
+        <p>
+          Jouez au Go 9×9 contre Moka : réseau de neurones et recherche arborescente en
+          WebAssembly, exécutés chez vous, sans serveur.
+        </p>
+        <nav><a href="./about.html">À propos du moteur et des règles</a></nav>
+      </header>
+      <div class="board-area">
+        <svg id="board" role="img" aria-label="Goban 9×9"></svg>
+        <p id="status">Chargement du moteur…</p>
+      </div>
+      <section>
+        <h2>Partie</h2>
+        <div class="controls">
+          <label for="level">Niveau</label>
+          <select id="level">
+            <option value="beginner">Débutant</option>
+            <option value="easy">Facile</option>
+            <option value="medium">Moyen</option>
+            <option value="strong">Fort</option>
+          </select>
+          <label for="color">Votre couleur</label>
+          <select id="color">
+            <option value="black">Noir</option>
+            <option value="white">Blanc</option>
+          </select>
+        </div>
+        <div class="controls">
+          <button id="pass" type="button" disabled>Passer</button>
+          <button id="resign" type="button" disabled>Abandonner</button>
+          <button id="undo" type="button" disabled>Annuler</button>
+          <button id="new-game" type="button" disabled>Nouvelle partie</button>
+        </div>
+        <h2>Coups</h2>
+        <ol id="moves"></ol>
+      </section>
+      <footer>
+        <p>
+          Réseau de neurones : Moka 9×9 de Million Software, licence MIT —
+          <a href="./about.html">en savoir plus</a>.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

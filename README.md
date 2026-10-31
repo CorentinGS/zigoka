@@ -53,12 +53,46 @@ await moka.initialize({
 The rest is Moka's API, unchanged. The engine needs WebAssembly SIMD, and a
 Content Security Policy sent with `worker.js` must allow `'wasm-unsafe-eval'`.
 
+## Site
+
+`pnpm site:build` assembles `site/public/` — Zigoka, the site where you play
+9×9 against the engine in the browser (levels from pure policy to a 320-visit
+PUCT search, pass/resign/undo, scoring). `pnpm site` builds and serves it at
+<http://127.0.0.1:4173/site/index.html>. Everything runs client-side; the
+`_headers` file carries the CSP the worker needs.
+
+### Deploying to Cloudflare Pages
+
+The site is built locally and the built folder is committed: Pages clones the
+repository and serves `site/public/` as-is, it never builds.
+
+Before pushing, refresh the build and commit it (`site/public/` is tracked):
+
+```sh
+pnpm site:build   # requires the artifacts of pnpm build
+git add site/public
+```
+
+In the dashboard: Workers & Pages → Create → Pages → **Connect to Git**,
+pick this repository, then:
+
+* **Project name**: `zigoka` (production branch: `main`)
+* **Build command**: leave empty
+* **Build output directory**: `site/public`
+
+Each push to `main` redeploys <https://zigoka.pages.dev> in a few seconds;
+other branches deploy previews. Then add the custom domain: project →
+Custom domains → `zigoka.corentings.dev` — since the zone is on Cloudflare,
+the CNAME is created automatically and the site answers at
+<https://zigoka.corentings.dev>.
+
 ## Layout
 
 | Path | Contents |
 | --- | --- |
 | `src/` | the Zig engine: inference, rules, search |
 | `js/` | the worker and its JS wrappers |
+| `site/` | Zigoka, the play site: page, worker, static build |
 | `demo/` | demo pages |
 | `match/` | match runner |
 | `oracle/`, `tests/` | reference data and tests |

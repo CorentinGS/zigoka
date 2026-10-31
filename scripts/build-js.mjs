@@ -39,6 +39,14 @@ const browserBundles = [
     entryPoints: [resolve("demo/match-worker.ts")],
     outfile: resolve("demo/dist/match-worker.js"),
   },
+  {
+    entryPoints: [resolve("site/play.ts")],
+    outfile: resolve("site/dist/play.js"),
+  },
+  {
+    entryPoints: [resolve("site/engine-worker.ts")],
+    outfile: resolve("site/dist/engine-worker.js"),
+  },
 ];
 
 const VENDOR_CONSTANTS_PATH = resolve("vendor/moka/src/constants.ts");

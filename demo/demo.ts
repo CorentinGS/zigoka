@@ -10,7 +10,7 @@ import {
   removeDeadStones,
   selectHighestLegalMove,
 } from "../vendor/moka/src/game.ts";
-import { formatMove, formatScore, getColorName, renderGoban } from "./goban.ts";
+import { formatMove, formatScore, getColorName, renderGoban } from "../js/goban.ts";
 
 const MODEL = { manifestUrl: "/dist/go-model.json", weightsUrl: "/dist/go-model.bin" };
 const ZIG_WORKER_URL = "/dist/worker.js";

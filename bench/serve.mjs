@@ -38,6 +38,7 @@ const SERVED_DIRECTORIES = new Map([
   ["demo", "demo"],
   ["dist", "dist"],
   ["e2e", path.join("tests", "e2e")],
+  ["site", path.join("site", "public")],
 ]);
 const STRICT_CSP = "script-src 'self'";
 

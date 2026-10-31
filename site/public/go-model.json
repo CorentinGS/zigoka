@@ -1,0 +1,682 @@
+{
+  "architecture": {
+    "boardSize": 9,
+    "bottleneckChannelCount": 16,
+    "globalResidualBlockInterval": 4,
+    "globalResidualHiddenChannelCount": 8,
+    "inputPlaneCount": 12,
+    "policyChannelCount": 4,
+    "policyMoveCount": 82,
+    "residualBlockCount": 12,
+    "residualBlockKind": "nested-bottleneck",
+    "scoreHiddenChannelCount": 32,
+    "trunkChannelCount": 32,
+    "valueChannelCount": 2
+  },
+  "format": "million-go-int8",
+  "sha256": "35c1e51cc9518a21e2f81cded7f69f41d22c80ca05522ed5e4056cb26d9ed053",
+  "tensors": {
+    "policy.convolution.bias": {
+      "dataOffset": 80848,
+      "dtype": "float32",
+      "shape": [4]
+    },
+    "policy.convolution.weight": {
+      "dataOffset": 80704,
+      "dtype": "int8",
+      "scaleOffset": 80832,
+      "shape": [4, 1, 1, 32]
+    },
+    "policy.linear.bias": {
+      "dataOffset": 107760,
+      "dtype": "float32",
+      "shape": [82]
+    },
+    "policy.linear.weight": {
+      "dataOffset": 80864,
+      "dtype": "int8",
+      "scaleOffset": 107432,
+      "shape": [82, 324]
+    },
+    "residual.0.expand.bias": {
+      "dataOffset": 9856,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.0.expand.weight": {
+      "dataOffset": 9216,
+      "dtype": "int8",
+      "scaleOffset": 9728,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.0.first.bias": {
+      "dataOffset": 6720,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.0.first.weight": {
+      "dataOffset": 4352,
+      "dtype": "int8",
+      "scaleOffset": 6656,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.0.reduce.bias": {
+      "dataOffset": 4288,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.0.reduce.weight": {
+      "dataOffset": 3712,
+      "dtype": "int8",
+      "scaleOffset": 4224,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.0.second.bias": {
+      "dataOffset": 9152,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.0.second.weight": {
+      "dataOffset": 6784,
+      "dtype": "int8",
+      "scaleOffset": 9088,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.1.expand.bias": {
+      "dataOffset": 16128,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.1.expand.weight": {
+      "dataOffset": 15488,
+      "dtype": "int8",
+      "scaleOffset": 16000,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.1.first.bias": {
+      "dataOffset": 12992,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.1.first.weight": {
+      "dataOffset": 10624,
+      "dtype": "int8",
+      "scaleOffset": 12928,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.1.reduce.bias": {
+      "dataOffset": 10560,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.1.reduce.weight": {
+      "dataOffset": 9984,
+      "dtype": "int8",
+      "scaleOffset": 10496,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.1.second.bias": {
+      "dataOffset": 15424,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.1.second.weight": {
+      "dataOffset": 13056,
+      "dtype": "int8",
+      "scaleOffset": 15360,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.10.expand.bias": {
+      "dataOffset": 73728,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.10.expand.weight": {
+      "dataOffset": 73088,
+      "dtype": "int8",
+      "scaleOffset": 73600,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.10.first.bias": {
+      "dataOffset": 70592,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.10.first.weight": {
+      "dataOffset": 68224,
+      "dtype": "int8",
+      "scaleOffset": 70528,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.10.reduce.bias": {
+      "dataOffset": 68160,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.10.reduce.weight": {
+      "dataOffset": 67584,
+      "dtype": "int8",
+      "scaleOffset": 68096,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.10.second.bias": {
+      "dataOffset": 73024,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.10.second.weight": {
+      "dataOffset": 70656,
+      "dtype": "int8",
+      "scaleOffset": 72960,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.11.expand.bias": {
+      "dataOffset": 80000,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.11.expand.weight": {
+      "dataOffset": 79360,
+      "dtype": "int8",
+      "scaleOffset": 79872,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.11.first.bias": {
+      "dataOffset": 76864,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.11.first.weight": {
+      "dataOffset": 74496,
+      "dtype": "int8",
+      "scaleOffset": 76800,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.11.global.hidden.bias": {
+      "dataOffset": 80416,
+      "dtype": "float32",
+      "shape": [8]
+    },
+    "residual.11.global.hidden.weight": {
+      "dataOffset": 80128,
+      "dtype": "int8",
+      "scaleOffset": 80384,
+      "shape": [8, 32]
+    },
+    "residual.11.global.output.bias": {
+      "dataOffset": 80640,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.11.global.output.weight": {
+      "dataOffset": 80448,
+      "dtype": "int8",
+      "scaleOffset": 80576,
+      "shape": [16, 8]
+    },
+    "residual.11.reduce.bias": {
+      "dataOffset": 74432,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.11.reduce.weight": {
+      "dataOffset": 73856,
+      "dtype": "int8",
+      "scaleOffset": 74368,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.11.second.bias": {
+      "dataOffset": 79296,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.11.second.weight": {
+      "dataOffset": 76928,
+      "dtype": "int8",
+      "scaleOffset": 79232,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.2.expand.bias": {
+      "dataOffset": 22400,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.2.expand.weight": {
+      "dataOffset": 21760,
+      "dtype": "int8",
+      "scaleOffset": 22272,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.2.first.bias": {
+      "dataOffset": 19264,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.2.first.weight": {
+      "dataOffset": 16896,
+      "dtype": "int8",
+      "scaleOffset": 19200,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.2.reduce.bias": {
+      "dataOffset": 16832,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.2.reduce.weight": {
+      "dataOffset": 16256,
+      "dtype": "int8",
+      "scaleOffset": 16768,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.2.second.bias": {
+      "dataOffset": 21696,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.2.second.weight": {
+      "dataOffset": 19328,
+      "dtype": "int8",
+      "scaleOffset": 21632,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.3.expand.bias": {
+      "dataOffset": 28672,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.3.expand.weight": {
+      "dataOffset": 28032,
+      "dtype": "int8",
+      "scaleOffset": 28544,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.3.first.bias": {
+      "dataOffset": 25536,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.3.first.weight": {
+      "dataOffset": 23168,
+      "dtype": "int8",
+      "scaleOffset": 25472,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.3.global.hidden.bias": {
+      "dataOffset": 29088,
+      "dtype": "float32",
+      "shape": [8]
+    },
+    "residual.3.global.hidden.weight": {
+      "dataOffset": 28800,
+      "dtype": "int8",
+      "scaleOffset": 29056,
+      "shape": [8, 32]
+    },
+    "residual.3.global.output.bias": {
+      "dataOffset": 29312,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.3.global.output.weight": {
+      "dataOffset": 29120,
+      "dtype": "int8",
+      "scaleOffset": 29248,
+      "shape": [16, 8]
+    },
+    "residual.3.reduce.bias": {
+      "dataOffset": 23104,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.3.reduce.weight": {
+      "dataOffset": 22528,
+      "dtype": "int8",
+      "scaleOffset": 23040,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.3.second.bias": {
+      "dataOffset": 27968,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.3.second.weight": {
+      "dataOffset": 25600,
+      "dtype": "int8",
+      "scaleOffset": 27904,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.4.expand.bias": {
+      "dataOffset": 35520,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.4.expand.weight": {
+      "dataOffset": 34880,
+      "dtype": "int8",
+      "scaleOffset": 35392,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.4.first.bias": {
+      "dataOffset": 32384,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.4.first.weight": {
+      "dataOffset": 30016,
+      "dtype": "int8",
+      "scaleOffset": 32320,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.4.reduce.bias": {
+      "dataOffset": 29952,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.4.reduce.weight": {
+      "dataOffset": 29376,
+      "dtype": "int8",
+      "scaleOffset": 29888,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.4.second.bias": {
+      "dataOffset": 34816,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.4.second.weight": {
+      "dataOffset": 32448,
+      "dtype": "int8",
+      "scaleOffset": 34752,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.5.expand.bias": {
+      "dataOffset": 41792,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.5.expand.weight": {
+      "dataOffset": 41152,
+      "dtype": "int8",
+      "scaleOffset": 41664,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.5.first.bias": {
+      "dataOffset": 38656,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.5.first.weight": {
+      "dataOffset": 36288,
+      "dtype": "int8",
+      "scaleOffset": 38592,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.5.reduce.bias": {
+      "dataOffset": 36224,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.5.reduce.weight": {
+      "dataOffset": 35648,
+      "dtype": "int8",
+      "scaleOffset": 36160,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.5.second.bias": {
+      "dataOffset": 41088,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.5.second.weight": {
+      "dataOffset": 38720,
+      "dtype": "int8",
+      "scaleOffset": 41024,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.6.expand.bias": {
+      "dataOffset": 48064,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.6.expand.weight": {
+      "dataOffset": 47424,
+      "dtype": "int8",
+      "scaleOffset": 47936,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.6.first.bias": {
+      "dataOffset": 44928,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.6.first.weight": {
+      "dataOffset": 42560,
+      "dtype": "int8",
+      "scaleOffset": 44864,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.6.reduce.bias": {
+      "dataOffset": 42496,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.6.reduce.weight": {
+      "dataOffset": 41920,
+      "dtype": "int8",
+      "scaleOffset": 42432,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.6.second.bias": {
+      "dataOffset": 47360,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.6.second.weight": {
+      "dataOffset": 44992,
+      "dtype": "int8",
+      "scaleOffset": 47296,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.7.expand.bias": {
+      "dataOffset": 54336,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.7.expand.weight": {
+      "dataOffset": 53696,
+      "dtype": "int8",
+      "scaleOffset": 54208,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.7.first.bias": {
+      "dataOffset": 51200,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.7.first.weight": {
+      "dataOffset": 48832,
+      "dtype": "int8",
+      "scaleOffset": 51136,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.7.global.hidden.bias": {
+      "dataOffset": 54752,
+      "dtype": "float32",
+      "shape": [8]
+    },
+    "residual.7.global.hidden.weight": {
+      "dataOffset": 54464,
+      "dtype": "int8",
+      "scaleOffset": 54720,
+      "shape": [8, 32]
+    },
+    "residual.7.global.output.bias": {
+      "dataOffset": 54976,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.7.global.output.weight": {
+      "dataOffset": 54784,
+      "dtype": "int8",
+      "scaleOffset": 54912,
+      "shape": [16, 8]
+    },
+    "residual.7.reduce.bias": {
+      "dataOffset": 48768,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.7.reduce.weight": {
+      "dataOffset": 48192,
+      "dtype": "int8",
+      "scaleOffset": 48704,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.7.second.bias": {
+      "dataOffset": 53632,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.7.second.weight": {
+      "dataOffset": 51264,
+      "dtype": "int8",
+      "scaleOffset": 53568,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.8.expand.bias": {
+      "dataOffset": 61184,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.8.expand.weight": {
+      "dataOffset": 60544,
+      "dtype": "int8",
+      "scaleOffset": 61056,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.8.first.bias": {
+      "dataOffset": 58048,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.8.first.weight": {
+      "dataOffset": 55680,
+      "dtype": "int8",
+      "scaleOffset": 57984,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.8.reduce.bias": {
+      "dataOffset": 55616,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.8.reduce.weight": {
+      "dataOffset": 55040,
+      "dtype": "int8",
+      "scaleOffset": 55552,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.8.second.bias": {
+      "dataOffset": 60480,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.8.second.weight": {
+      "dataOffset": 58112,
+      "dtype": "int8",
+      "scaleOffset": 60416,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.9.expand.bias": {
+      "dataOffset": 67456,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "residual.9.expand.weight": {
+      "dataOffset": 66816,
+      "dtype": "int8",
+      "scaleOffset": 67328,
+      "shape": [32, 1, 1, 16]
+    },
+    "residual.9.first.bias": {
+      "dataOffset": 64320,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.9.first.weight": {
+      "dataOffset": 61952,
+      "dtype": "int8",
+      "scaleOffset": 64256,
+      "shape": [16, 3, 3, 16]
+    },
+    "residual.9.reduce.bias": {
+      "dataOffset": 61888,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.9.reduce.weight": {
+      "dataOffset": 61312,
+      "dtype": "int8",
+      "scaleOffset": 61824,
+      "shape": [16, 1, 1, 32]
+    },
+    "residual.9.second.bias": {
+      "dataOffset": 66752,
+      "dtype": "float32",
+      "shape": [16]
+    },
+    "residual.9.second.weight": {
+      "dataOffset": 64384,
+      "dtype": "int8",
+      "scaleOffset": 66688,
+      "shape": [16, 3, 3, 16]
+    },
+    "stem.bias": {
+      "dataOffset": 3584,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "stem.weight": {
+      "dataOffset": 0,
+      "dtype": "int8",
+      "scaleOffset": 3456,
+      "shape": [32, 3, 3, 12]
+    },
+    "value.convolution.bias": {
+      "dataOffset": 108160,
+      "dtype": "float32",
+      "shape": [2]
+    },
+    "value.convolution.weight": {
+      "dataOffset": 108088,
+      "dtype": "int8",
+      "scaleOffset": 108152,
+      "shape": [2, 1, 1, 32]
+    },
+    "value.hidden.bias": {
+      "dataOffset": 113480,
+      "dtype": "float32",
+      "shape": [32]
+    },
+    "value.hidden.weight": {
+      "dataOffset": 108168,
+      "dtype": "int8",
+      "scaleOffset": 113352,
+      "shape": [32, 162]
+    },
+    "value.output.bias": {
+      "dataOffset": 113644,
+      "dtype": "float32",
+      "shape": [1]
+    },
+    "value.output.weight": {
+      "dataOffset": 113608,
+      "dtype": "int8",
+      "scaleOffset": 113640,
+      "shape": [1, 32]
+    }
+  },
+  "version": 1,
+  "weightsBytes": 113648
+}
