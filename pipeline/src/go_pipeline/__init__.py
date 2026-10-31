@@ -1,0 +1,12 @@
+"""9x9 distillation pipeline for the Moka-format student network."""
+
+BOARD_SIZE = 9
+AREA = BOARD_SIZE * BOARD_SIZE
+PASS_MOVE = AREA
+MOVE_COUNT = AREA + 1
+INPUT_PLANES = 12
+KOMI = 7.0
+MAX_MOVES = 120
+MIN_PASS_MOVE = 20
+
+__all__ = ["AREA", "BOARD_SIZE", "INPUT_PLANES", "KOMI", "MAX_MOVES", "MIN_PASS_MOVE", "MOVE_COUNT", "PASS_MOVE"]

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "go-distill-9x9"
+version = "0.1.0"
+description = "9x9 distillation pipeline (generate / train / export) for the Moka-format student, with NVIDIA CUDA support"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  # Pinned to the PyTorch CUDA index on Linux x86_64 via [tool.uv.sources]
+  # below, so `uv sync` on an NVIDIA machine yields a CUDA build.
+  # On CPU-only machines install the CPU wheel instead (see README).
+  "torch>=2.4",
+]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cuda", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# Teacher-side KataGo ONNX inference on NVIDIA (optional, dataset is npz-based).
+katago = ["onnxruntime-gpu>=1.19"]
+
+[project.scripts]
+go-generate = "go_pipeline.generate:main"
+go-train = "go_pipeline.train:main"
+go-export = "go_pipeline.export:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/go_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
