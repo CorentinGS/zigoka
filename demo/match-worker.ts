@@ -92,7 +92,7 @@ const handleRequest = async (request: MatchWorkerRequest) => {
   }
 
   const { task } = request;
-  const result = playGame(task, players.first, players.second, (event) => {
+  const result = await playGame(task, players.first, players.second, (event) => {
     post({
       type: "move",
       index: task.index,

@@ -42,6 +42,8 @@ type MatchConfig = {
   secondModel?: string;
   games: number;
   timeMs: number;
+  firstTimeMs?: number;
+  secondTimeMs?: number;
   maxVisits?: number;
   batch: number;
   openingMoves: number;
@@ -67,11 +69,13 @@ type GameResult = {
   second: SideStats;
 };
 
-type Player = { kind: PlayerKind; play: (state: GoGameState) => { move: number; visits: number } };
+type MoveChoice = { move: number; visits: number };
+
+type Player = { kind: string; play: (state: GoGameState) => MoveChoice | Promise<MoveChoice> };
 
 type MoveEvent = { state: GoGameState; move: number; visits: number; thinkingMs: number };
 
-type MatchSummary = ReturnType<typeof summarize>;
+type MatchSummary<Config = MatchConfig> = ReturnType<typeof summarize<Config>>;
 
 const isPlayerKind = (kind: unknown): kind is PlayerKind =>
   PLAYER_KINDS.includes(kind as PlayerKind);
@@ -79,13 +83,21 @@ const isPlayerKind = (kind: unknown): kind is PlayerKind =>
 /** Players that keep state in `search.wasm`: two of them need two engine instances. */
 const usesSearchWasm = (kind: PlayerKind) => kind === "zig-search" || kind === "zig-reuse";
 
-const createPlayer = (kind: PlayerKind, engines: Engines, config: MatchConfig): Player => {
+const getTimeMs = (config: Pick<MatchConfig, "timeMs" | "firstTimeMs" | "secondTimeMs">, side: "first" | "second") =>
+  (side === "first" ? config.firstTimeMs : config.secondTimeMs) ?? config.timeMs;
+
+const createPlayer = (
+  kind: PlayerKind,
+  engines: Engines,
+  config: Pick<MatchConfig, "timeMs" | "maxVisits" | "batch">,
+  timeMs = config.timeMs,
+): Player => {
   const [engine, mode] = kind.split("-") as [EngineName, "reuse" | "search" | "puct" | "policy"];
   const evaluate = engines[engine];
 
   if (mode === "search" || mode === "reuse") {
     const options = {
-      timeMs: config.timeMs,
+      timeMs,
       maxVisits: config.maxVisits,
       batch: config.batch,
       reuse: mode === "reuse",
@@ -97,7 +109,7 @@ const createPlayer = (kind: PlayerKind, engines: Engines, config: MatchConfig): 
   if (mode === "puct") {
     return {
       kind,
-      play: (state) => search(state, evaluate, { timeMs: config.timeMs, maxVisits: config.maxVisits }),
+      play: (state) => search(state, evaluate, { timeMs, maxVisits: config.maxVisits }),
     };
   }
 
@@ -124,12 +136,12 @@ const playOpening = (moves: number[]) =>
 const getBlackScore = (state: GoGameState) =>
   getAreaScore(removeDeadStones(state, getAutomaticallyDeadMoves(state)));
 
-const playGame = (
+const playGame = async (
   task: GameTask,
   first: Player,
   second: Player,
   onMove: (event: MoveEvent) => void = () => undefined,
-): GameResult => {
+): Promise<GameResult> => {
   const stats = {
     first: { moves: 0, visits: 0, thinkingMs: 0 },
     second: { moves: 0, visits: 0, thinkingMs: 0 },
@@ -142,7 +154,7 @@ const playGame = (
     const player = firstToMove ? first : second;
     const side = firstToMove ? stats.first : stats.second;
     const startedAt = performance.now();
-    const { move, visits } = player.play(state);
+    const { move, visits } = await player.play(state);
     const thinkingMs = performance.now() - startedAt;
 
     side.thinkingMs += thinkingMs;
@@ -252,7 +264,7 @@ const toElo = (score: number) => {
   return -ELO_SCALE * Math.log10(1 / score - 1);
 };
 
-const summarize = (config: MatchConfig, results: GameResult[]) => {
+const summarize = <Config>(config: Config, results: GameResult[]) => {
   const wins = results.filter((result) => result.firstResult === 1).length;
   const losses = results.filter((result) => result.firstResult === -1).length;
   const draws = results.length - wins - losses;
@@ -287,6 +299,7 @@ export {
   createPlayer,
   createTasks,
   formatElo,
+  getTimeMs,
   isPlayerKind,
   playGame,
   PLAYER_KINDS,
@@ -300,7 +313,9 @@ export type {
   GameTask,
   MatchConfig,
   MatchSummary,
+  MoveChoice,
   MoveEvent,
   MoveRecord,
+  Player,
   PlayerKind,
 };

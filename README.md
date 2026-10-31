@@ -122,11 +122,27 @@ de la politique du réseau, puis jouée deux fois en échangeant les couleurs.
 
 - `pnpm match` lance le match en Node, sur plusieurs threads
   (`--first`, `--second`, `--first-model`, `--second-model`, `--games`,
-  `--time`, `--max-visits`, `--batch`, `--parallel`). Les joueurs sont
-  `zig-reuse`, `zig-search`, `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
-  (`policy` : le coup le mieux noté, sans recherche). Chaque joueur prend son
-  modèle 9×9 dans `zig-out/` (`moka-9` par défaut, ou `moka-9-v2`). Le
-  résultat va dans `bench/results/match-*.json`.
+  `--time`, `--first-time`, `--second-time`, `--max-visits`, `--batch`,
+  `--parallel`). Les joueurs sont `zig-reuse`, `zig-search`, `zig-puct`,
+  `moka-puct`, `zig-policy` et `moka-policy` (`policy` : le coup le mieux
+  noté, sans recherche). Chaque joueur prend son modèle 9×9 dans `zig-out/`
+  (`moka-9` par défaut, ou `moka-9-v2`). `--first-time` et `--second-time`
+  donnent à un joueur un autre temps par coup que `--time`, pour mesurer un
+  écart de force en handicap de temps. Le résultat va dans
+  `bench/results/match-*.json`.
+- Le joueur `katago` (Node seulement) lance KataGo en GTP avec un nombre fixe
+  de visites par coup (`--katago-visits`, `--katago-binary`,
+  `--katago-model`, ou `KATAGO_BINARY` et `KATAGO_MODEL`), sous les règles de
+  Moka (ko simple, score par zone, suicide interdit, komi 7), avec
+  `match/katago-gtp.cfg`. Avec `--katago-human-model` (le réseau human SL
+  `b18c384nbt-humanv0`) et `--katago-profile rank_5k` (de `rank_20k` à
+  `rank_9d`), KataGo imite un joueur humain de ce rang avec
+  `match/katago-human.cfg` : le coup vient de la politique humaine brute, et
+  16 visites du réseau normal décident seulement quand passer. KataGo n'est pas fourni ; le processus hérite de
+  l'environnement, donc avec le build OpenCL sur un GPU AMD intégré via Mesa
+  il faut `RUSTICL_ENABLE=radeonsi` (paquet `mesa-opencl-icd`). En fin de partie, le banc
+  compte les parties où le score de KataGo donne un autre vainqueur que celui
+  de Moka.
 - `demo/match.html`, servie par `pnpm demo`, lance le même match dans le
   navigateur : une partie par Web Worker, un petit goban par partie, et les
   statistiques mises à jour à chaque coup et à chaque résultat.
@@ -186,6 +202,16 @@ noyaux, une inférence via le Worker passe de 0,815 à 0,660 ms dans Chromium
 | `moka-puct` v2 contre `moka-puct` v1 | 65,5 % [58,9 ; 72,1] | +111 [+63 ; +165] |
 
 Le détail est dans [`docs/designs/moka-v2.md`](docs/designs/moka-v2.md).
+
+### Force de Zig v2
+
+`zig-reuse` avec `moka-9-v2` gagne 92,5 % de ses parties contre `moka-puct`
+v1 à 100 ms par coup, et vaut encore Moka v1 avec 2 ms par coup contre 100
+(54,8 % [47,9 ; 61,6]). Contre KataGo, Zig v2 à 100 ms ne gagne aucune
+partie contre le réseau b10 sans recherche (8 % de score, avec les nulles),
+et joue à égalité avec l'imitation human SL `rank_3d` en 9×9 (51 %, arbitre
+KataGo), un rang qui surestime sans doute sa force. Le détail et les limites
+sont dans [`docs/designs/force-zig-v2.md`](docs/designs/force-zig-v2.md).
 
 ### Vidéo
 

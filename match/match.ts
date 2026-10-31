@@ -13,6 +13,7 @@ import {
   createPlayer,
   createTasks,
   formatElo,
+  getTimeMs,
   isPlayerKind,
   playGame,
   PLAYER_KINDS,
@@ -22,13 +23,37 @@ import {
   type GameTask,
   type MatchConfig,
   type MatchSummary,
+  type Player,
   type PlayerKind,
 } from "./games.ts";
+import { createKataGoPlayer, type KataGoPlayer } from "./katago.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const rootDirectory = path.resolve(path.dirname(scriptPath), "..", "..");
 const resultsDirectory = path.join(rootDirectory, "bench", "results");
 const DEFAULT_MODEL_ID = "moka-9";
+const KATAGO = "katago";
+const KATAGO_CONFIG = path.join(rootDirectory, "match", "katago-gtp.cfg");
+/** Visits of the normal model when the human SL model plays: they only decide when to pass. */
+const HUMAN_PASS_VISITS = 16;
+const KATAGO_HUMAN_CONFIG = path.join(rootDirectory, "match", "katago-human.cfg");
+
+type SideKind = PlayerKind | typeof KATAGO;
+
+type KataGoSettings = { binary?: string; model?: string; visits: number; humanModel?: string; profile?: string };
+
+type CliConfig = Omit<MatchConfig, "first" | "second"> & {
+  first: SideKind;
+  second: SideKind;
+  katago: KataGoSettings;
+};
+
+/**
+ * When KataGo plays, `score` and `firstResult` come from KataGo's own score of the final position and
+ * `mokaScore` keeps Moka's: Zig's search scores with Moka's dead-stone guess and can pass into a
+ * position that guess misjudges.
+ */
+type CliGameResult = GameResult & { mokaScore?: number };
 
 type GameTiming = { index: number; slot: number; startMs: number; endMs: number };
 
@@ -68,13 +93,23 @@ const loadEngines = async (modelId: string): Promise<Engines> => {
   };
 };
 
-const playerLabel = (config: MatchConfig, side: "first" | "second") => {
+const playerLabel = (config: CliConfig, side: "first" | "second") => {
+  const kind = config[side];
+  const timeMs = getTimeMs(config, side);
+  const time = timeMs === config.timeMs ? "" : `/${timeMs}ms`;
+
+  if (kind === KATAGO) {
+    return config.katago.profile === undefined
+      ? `${KATAGO}-${config.katago.visits}v`
+      : `${KATAGO}-${config.katago.profile}`;
+  }
+
   const model = config[side === "first" ? "firstModel" : "secondModel"] ?? DEFAULT_MODEL_ID;
 
-  return model === DEFAULT_MODEL_ID ? config[side] : `${config[side]}@${model}`;
+  return `${model === DEFAULT_MODEL_ID ? kind : `${kind}@${model}`}${time}`;
 };
 
-const printSummary = (summary: MatchSummary) => {
+const printSummary = (summary: MatchSummary<CliConfig>, results: CliGameResult[]) => {
   const { config } = summary;
   const first = playerLabel(config, "first");
   const second = playerLabel(config, "second");
@@ -82,7 +117,7 @@ const printSummary = (summary: MatchSummary) => {
   const [low, high] = summary.scoreInterval;
   const [eloLow, eloHigh] = summary.eloInterval;
 
-  console.log(`${first} vs ${second}, ${games} games, ${config.timeMs} ms per move`);
+  console.log(`${first} vs ${second}, ${games} games, ${config.timeMs} ms per move unless noted`);
   console.log(
     `  ${first}: ${summary.wins} wins, ${summary.losses} losses, ${summary.draws} draws ` +
       `(${summary.winsAsBlack} as black, ${summary.winsAsWhite} as white)`,
@@ -100,9 +135,23 @@ const printSummary = (summary: MatchSummary) => {
       `  ${playerLabel(config, side)}: ${stats.visitsPerMove.toFixed(1)} visits per move, ${stats.msPerMove.toFixed(1)} ms per move`,
     );
   }
+
+  const scored = results.filter((result) => result.mokaScore !== undefined);
+
+  if (scored.length > 0) {
+    const disagreements = scored.filter(
+      (result) => Math.sign(result.mokaScore!) !== Math.sign(result.score),
+    ).length;
+
+    console.log(`  scored by KataGo; Moka's score gives another winner in ${disagreements} / ${scored.length} games`);
+  }
 };
 
-const parseConfig = (): MatchConfig => {
+const isSideKind = (kind: unknown): kind is SideKind => kind === KATAGO || isPlayerKind(kind);
+
+const parseOptionalNumber = (value: string | undefined) => (value === undefined ? undefined : Number(value));
+
+const parseConfig = (): CliConfig => {
   const { values } = parseArgs({
     options: {
       first: { type: "string", default: "zig-puct" },
@@ -111,6 +160,13 @@ const parseConfig = (): MatchConfig => {
       "second-model": { type: "string", default: DEFAULT_MODEL_ID },
       games: { type: "string", default: "100" },
       time: { type: "string", default: "100" },
+      "first-time": { type: "string" },
+      "second-time": { type: "string" },
+      "katago-binary": { type: "string", default: process.env.KATAGO_BINARY },
+      "katago-model": { type: "string", default: process.env.KATAGO_MODEL },
+      "katago-visits": { type: "string" },
+      "katago-human-model": { type: "string", default: process.env.KATAGO_HUMAN_MODEL },
+      "katago-profile": { type: "string" },
       "max-visits": { type: "string" },
       batch: { type: "string", default: "1" },
       "opening-moves": { type: "string", default: "4" },
@@ -120,9 +176,20 @@ const parseConfig = (): MatchConfig => {
   });
 
   for (const kind of [values.first, values.second]) {
-    if (!isPlayerKind(kind)) {
-      throw new Error(`Unknown player "${kind}" (expected one of ${PLAYER_KINDS.join(", ")}).`);
+    if (!isSideKind(kind)) {
+      throw new Error(`Unknown player "${kind}" (expected one of ${[...PLAYER_KINDS, KATAGO].join(", ")}).`);
     }
+  }
+
+  if (
+    (values.first === KATAGO || values.second === KATAGO) &&
+    (values["katago-binary"] === undefined || values["katago-model"] === undefined)
+  ) {
+    throw new Error("The katago player needs --katago-binary and --katago-model (or KATAGO_BINARY and KATAGO_MODEL).");
+  }
+
+  if (values["katago-profile"] !== undefined && values["katago-human-model"] === undefined) {
+    throw new Error("--katago-profile needs --katago-human-model (or KATAGO_HUMAN_MODEL).");
   }
 
   const games = Number(values.games);
@@ -132,13 +199,22 @@ const parseConfig = (): MatchConfig => {
   }
 
   return {
-    first: values.first as PlayerKind,
-    second: values.second as PlayerKind,
+    first: values.first as SideKind,
+    second: values.second as SideKind,
     firstModel: values["first-model"],
     secondModel: values["second-model"],
     games,
     timeMs: Number(values.time),
-    maxVisits: values["max-visits"] === undefined ? undefined : Number(values["max-visits"]),
+    firstTimeMs: parseOptionalNumber(values["first-time"]),
+    secondTimeMs: parseOptionalNumber(values["second-time"]),
+    katago: {
+      binary: values["katago-binary"],
+      model: values["katago-model"],
+      visits: Number(values["katago-visits"] ?? (values["katago-profile"] === undefined ? 1 : HUMAN_PASS_VISITS)),
+      humanModel: values["katago-human-model"],
+      profile: values["katago-profile"],
+    },
+    maxVisits: parseOptionalNumber(values["max-visits"]),
     batch: Number(values.batch),
     openingMoves: Number(values["opening-moves"]),
     parallel: Math.min(Number(values.parallel), os.availableParallelism()),
@@ -146,21 +222,62 @@ const parseConfig = (): MatchConfig => {
   };
 };
 
-const runWorker = async () => {
-  const config = workerData as MatchConfig;
-  const firstModel = config.firstModel ?? DEFAULT_MODEL_ID;
-  const secondModel = config.secondModel ?? DEFAULT_MODEL_ID;
-  const firstEngines = await loadEngines(firstModel);
-  const secondEngines = await loadEngines(secondModel);
-  const first = createPlayer(config.first, firstEngines, config);
-  const second = createPlayer(config.second, secondEngines, config);
+const createSide = async (config: CliConfig, side: "first" | "second"): Promise<Player | KataGoPlayer> => {
+  const kind = config[side];
 
-  parentPort!.on("message", (task: GameTask | null) => {
+  if (kind === KATAGO) {
+    const { binary, model, visits, humanModel, profile } = config.katago;
+    const human = profile === undefined ? undefined : { model: humanModel!, profile };
+
+    return createKataGoPlayer({
+      binary: binary!,
+      model: model!,
+      config: human ? KATAGO_HUMAN_CONFIG : KATAGO_CONFIG,
+      visits,
+      human,
+    });
+  }
+
+  const engines = await loadEngines(config[side === "first" ? "firstModel" : "secondModel"] ?? DEFAULT_MODEL_ID);
+
+  return createPlayer(kind, engines, config, getTimeMs(config, side));
+};
+
+const isKataGoPlayer = (player: Player | KataGoPlayer): player is KataGoPlayer => "finalScore" in player;
+
+const scoreWithKataGo = async (result: GameResult, players: (Player | KataGoPlayer)[]): Promise<CliGameResult> => {
+  const katago = players.find(isKataGoPlayer);
+
+  if (!katago) {
+    return result;
+  }
+
+  const score = await katago.finalScore([...result.opening, ...result.moves.map(({ move }) => move)]);
+  const blackResult = Math.sign(score) as 1 | 0 | -1;
+
+  return {
+    ...result,
+    score,
+    firstResult: (result.firstPlaysBlack ? blackResult : -blackResult) as 1 | 0 | -1,
+    mokaScore: result.score,
+  };
+};
+
+const runWorker = async () => {
+  const config = workerData as CliConfig;
+  const first = await createSide(config, "first");
+  const second = await createSide(config, "second");
+
+  parentPort!.on("message", async (task: GameTask | null) => {
     if (task === null) {
+      for (const player of [first, second].filter(isKataGoPlayer)) {
+        player.close();
+      }
+
       process.exit(0);
     }
 
-    parentPort!.postMessage(playGame(task, first, second));
+    parentPort!.postMessage(await scoreWithKataGo(await playGame(task, first, second), [first, second]));
   });
   parentPort!.postMessage(null);
 };
@@ -171,7 +288,7 @@ const runMain = async () => {
   const tasks = createTasks(
     createOpenings(config.games / 2, config.openingMoves, engines.zig, config.seed),
   );
-  const results: GameResult[] = [];
+  const results: CliGameResult[] = [];
   const timings: GameTiming[] = [];
   const startedAt = performance.now();
   let nextTask = 0;
@@ -184,7 +301,7 @@ const runMain = async () => {
       return new Promise<void>((resolve, reject) => {
         worker.on("error", reject);
         worker.on("exit", () => resolve());
-        worker.on("message", (result: GameResult | null) => {
+        worker.on("message", (result: CliGameResult | null) => {
           const now = performance.now() - startedAt;
 
           if (result !== null && timing !== null) {
@@ -212,7 +329,7 @@ const runMain = async () => {
     `match-${playerLabel(config, "first")}-vs-${playerLabel(config, "second")}-${new Date().toISOString().replaceAll(":", "-")}.json`,
   );
 
-  printSummary(summary);
+  printSummary(summary, results);
   console.log(`  wall time ${((performance.now() - startedAt) / 1000).toFixed(0)} s`);
   fs.mkdirSync(resultsDirectory, { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify({ summary, results, timings }, null, 2)}\n`);
