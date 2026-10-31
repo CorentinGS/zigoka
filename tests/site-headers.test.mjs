@@ -59,6 +59,12 @@ test("site/_headers: the engine worker gets one CSP, which allows wasm compilati
   assert.match(policies[0], /script-src [^;]*'wasm-unsafe-eval'/);
 });
 
+test("site/_headers: every file is revalidated, with a single Cache-Control", () => {
+  for (const urlPath of [...PAGE_PATHS, WORKER_PATH, "/play.js", "/infer.wasm", "/search.wasm", "/go-model.bin"]) {
+    assert.deepEqual(headersFor(rules, urlPath, "cache-control"), ["no-cache"], urlPath);
+  }
+});
+
 test("site/_headers: each page gets one CSP, which allows the worker", () => {
   for (const pagePath of PAGE_PATHS) {
     const policies = headersFor(rules, pagePath, "content-security-policy");

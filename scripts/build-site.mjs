@@ -10,6 +10,9 @@ const publicDirectory = resolve("site/public");
 // rule that matches a path, and a browser enforces each Content-Security-Policy it
 // receives: a CSP on /* would also reach engine-worker.js and block its
 // wasm-unsafe-eval. The page CSP is therefore set path by path.
+// The published file names carry no hash, and a browser caches headers with a
+// file: every file is revalidated (`no-cache`, a 304 when unchanged), so a new
+// deploy never mixes with stale files or stale headers.
 const PUBLISHED_FILES = [
   ["site/index.html", "index.html"],
   ["site/about.html", "about.html"],
