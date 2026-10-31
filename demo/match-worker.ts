@@ -1,10 +1,11 @@
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { createEngine } from "../js/engine.ts";
+import { createSearchEngine } from "../js/search-engine.ts";
 import {
   createOpenings,
   createPlayer,
   playGame,
-  type Evaluators,
+  type Engines,
 } from "../match/games.ts";
 import type { MatchWorkerRequest, MatchWorkerResponse } from "./match-protocol.ts";
 
@@ -12,6 +13,7 @@ const MODEL_URLS = {
   manifest: "/dist/go-model.json",
   weights: "/dist/go-model.bin",
   infer: "/dist/infer.wasm",
+  search: "/demo/dist/search.wasm",
 };
 
 type Players = { first: ReturnType<typeof createPlayer>; second: ReturnType<typeof createPlayer> };
@@ -28,49 +30,55 @@ const fetchChecked = async (url: string) => {
   return response;
 };
 
-const loadEvaluators = async (): Promise<Evaluators> => {
-  const [manifestResponse, weightsResponse, inferResponse] = await Promise.all([
+const loadEngines = async (): Promise<Engines> => {
+  const [manifestResponse, weightsResponse, inferResponse, searchResponse] = await Promise.all([
     fetchChecked(MODEL_URLS.manifest),
     fetchChecked(MODEL_URLS.weights),
     fetchChecked(MODEL_URLS.infer),
+    fetchChecked(MODEL_URLS.search),
   ]);
   const manifest = (await manifestResponse.json()) as GoModelManifest;
   const weights = await weightsResponse.arrayBuffer();
-  const module = await WebAssembly.compile(await inferResponse.arrayBuffer());
-  const zig = await createEngine(module, weights.slice(0));
+  const [inferModule, searchModule] = await Promise.all([
+    WebAssembly.compile(await inferResponse.arrayBuffer()),
+    WebAssembly.compile(await searchResponse.arrayBuffer()),
+  ]);
+  const zig = await createEngine(inferModule, weights.slice(0));
+  const searchEngine = await createSearchEngine(searchModule, weights.slice(0));
   const moka = GoModelRuntime.create(manifest, weights);
 
   return {
     zig: (features) => zig.infer(features),
     moka: (features) => moka.infer(features),
+    search: (state, options) => searchEngine.search(state, options),
   };
 };
 
-let evaluators: Evaluators | null = null;
+let engines: Engines | null = null;
 let players: Players | null = null;
 
 const handleRequest = async (request: MatchWorkerRequest) => {
   if (request.type === "initialize") {
     const startedAt = performance.now();
 
-    evaluators = await loadEvaluators();
+    engines = await loadEngines();
     players = {
-      first: createPlayer(request.config.first, evaluators, request.config),
-      second: createPlayer(request.config.second, evaluators, request.config),
+      first: createPlayer(request.config.first, engines, request.config),
+      second: createPlayer(request.config.second, engines, request.config),
     };
     post({ type: "ready", durationMs: performance.now() - startedAt });
 
     return;
   }
 
-  if (!evaluators || !players) {
+  if (!engines || !players) {
     throw new Error("The match worker is not initialized.");
   }
 
   if (request.type === "openings") {
     post({
       type: "openings",
-      openings: createOpenings(request.count, request.length, evaluators.zig, request.seed),
+      openings: createOpenings(request.count, request.length, engines.zig, request.seed),
     });
 
     return;

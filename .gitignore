@@ -5,6 +5,7 @@ dist/
 bench/dist/
 oracle/dist/
 tests/e2e/dist/
+tests/dist/
 test-results/
 playwright-report/
 

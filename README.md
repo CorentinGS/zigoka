@@ -121,10 +121,10 @@ coup. `match/games.ts` joue les parties : chaque ouverture de 4 coups est tirée
 de la politique du réseau, puis jouée deux fois en échangeant les couleurs.
 
 - `pnpm match` lance le match en Node, sur plusieurs threads
-  (`--first`, `--second`, `--games`, `--time`, `--max-visits`, `--parallel`).
-  Les joueurs sont `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
-  (`policy` : le coup le mieux noté, sans recherche). Le résultat va dans
-  `bench/results/match-*.json`.
+  (`--first`, `--second`, `--games`, `--time`, `--max-visits`, `--batch`,
+  `--parallel`). Les joueurs sont `zig-search`, `zig-puct`, `moka-puct`,
+  `zig-policy` et `moka-policy` (`policy` : le coup le mieux noté, sans
+  recherche). Le résultat va dans `bench/results/match-*.json`.
 - `demo/match.html`, servie par `pnpm demo`, lance le même match dans le
   navigateur : une partie par Web Worker, un petit goban par partie, et les
   statistiques mises à jour à chaque coup et à chaque résultat.
@@ -141,6 +141,25 @@ Résultats en Node, 100 parties, 100 ms par coup (AMD Ryzen 7 8845HS) :
 Le contrôle montre que le banc ne favorise aucun côté. Ces Elo décrivent cette
 recherche simple (sans réutilisation de l'arbre ni lots) sur 50 ouvertures ;
 avec plus de temps par coup, l'écart devrait se réduire.
+
+### Recherche dans `search.wasm`
+
+`zig-search` fait la même recherche dans `zig-out/<id>/search.wasm`, qui
+contient le réseau, les règles de Moka portées en Zig (`src/rules/rules.zig`)
+et un arbre de taille fixe (`src/search/tree.zig`) ; `js/search-engine.ts` le
+pilote. Pour un même nombre de visites, il visite exactement comme
+`match/search.ts` (`tests/search-parity.test.ts`). Le design est dans
+[`docs/designs/zig-search.md`](docs/designs/zig-search.md).
+
+| | `zig-puct` | `zig-search` |
+|---|---|---|
+| Visites en 100 ms, 9×9, un thread | 331 | 477 (+44 %) |
+| Visites en 300 ms, 19×19 (`synthetic-19`), un thread | 205 | 263 (+28 %) |
+| Match de 200 parties à 100 ms, score de `zig-search` | | 54,3 % [47,3 ; 61,2], Elo +30 [−18 ; +79] |
+| Match de 200 parties à 10 ms, score de `zig-search` | | 57,8 % [50,9 ; 64,6], Elo +54 [+6 ; +104] |
+
+Évaluer plusieurs feuilles par appel (`--batch`) ne fait gagner aucune visite :
+le réseau traite les positions d'un lot l'une après l'autre.
 
 ### Vidéo
 

@@ -7,6 +7,7 @@ test {
     _ = @import("infer/kernels.zig");
     _ = @import("infer/dense.zig");
     _ = @import("infer/network.zig");
+    _ = @import("rules/rules.zig");
 }
 
 const build_options = @import("build_options");

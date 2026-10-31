@@ -12,7 +12,7 @@ import {
 import { createMulberry32 } from "../oracle/mulberry32.ts";
 import { getCandidateMoves, search, type Evaluate } from "./search.ts";
 
-const PLAYER_KINDS = ["zig-puct", "moka-puct", "zig-policy", "moka-policy"] as const;
+const PLAYER_KINDS = ["zig-search", "zig-puct", "moka-puct", "zig-policy", "moka-policy"] as const;
 const OPENING_ATTEMPT_LIMIT = 100;
 const Z_95 = 1.96;
 const ELO_SCALE = 400;
@@ -21,7 +21,12 @@ type PlayerKind = (typeof PLAYER_KINDS)[number];
 
 type EngineName = "zig" | "moka";
 
-type Evaluators = Record<EngineName, Evaluate>;
+type SearchInWasm = (
+  state: GoGameState,
+  options: { timeMs: number; maxVisits?: number; batch: number },
+) => { move: number; visits: number };
+
+type Engines = Record<EngineName, Evaluate> & { search: SearchInWasm };
 
 type MatchConfig = {
   first: PlayerKind;
@@ -29,6 +34,7 @@ type MatchConfig = {
   games: number;
   timeMs: number;
   maxVisits?: number;
+  batch: number;
   openingMoves: number;
   parallel: number;
   seed: number;
@@ -61,9 +67,17 @@ type MatchSummary = ReturnType<typeof summarize>;
 const isPlayerKind = (kind: unknown): kind is PlayerKind =>
   PLAYER_KINDS.includes(kind as PlayerKind);
 
-const createPlayer = (kind: PlayerKind, evaluators: Evaluators, config: MatchConfig): Player => {
-  const [engine, mode] = kind.split("-") as [EngineName, "puct" | "policy"];
-  const evaluate = evaluators[engine];
+const createPlayer = (kind: PlayerKind, engines: Engines, config: MatchConfig): Player => {
+  const [engine, mode] = kind.split("-") as [EngineName, "search" | "puct" | "policy"];
+  const evaluate = engines[engine];
+
+  if (mode === "search") {
+    return {
+      kind,
+      play: (state) =>
+        engines.search(state, { timeMs: config.timeMs, maxVisits: config.maxVisits, batch: config.batch }),
+    };
+  }
 
   if (mode === "puct") {
     return {
@@ -265,7 +279,7 @@ export {
 };
 export type {
   EngineName,
-  Evaluators,
+  Engines,
   GameResult,
   GameTask,
   MatchConfig,

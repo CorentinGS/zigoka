@@ -7,6 +7,7 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { createEngine } from "../js/engine.ts";
+import { createSearchEngine } from "../js/search-engine.ts";
 import {
   createOpenings,
   createPlayer,
@@ -16,7 +17,7 @@ import {
   playGame,
   PLAYER_KINDS,
   summarize,
-  type Evaluators,
+  type Engines,
   type GameResult,
   type GameTask,
   type MatchConfig,
@@ -28,10 +29,11 @@ const scriptPath = fileURLToPath(import.meta.url);
 const rootDirectory = path.resolve(path.dirname(scriptPath), "..", "..");
 const distDirectory = path.join(rootDirectory, "dist");
 const resultsDirectory = path.join(rootDirectory, "bench", "results");
+const searchWasmPath = path.join(rootDirectory, "zig-out", "moka-9", "search.wasm");
 
 type GameTiming = { index: number; slot: number; startMs: number; endMs: number };
 
-const loadEvaluators = async (): Promise<Evaluators> => {
+const loadEngines = async (): Promise<Engines> => {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(distDirectory, "go-model.json"), "utf8"),
   ) as GoModelManifest;
@@ -42,11 +44,16 @@ const loadEvaluators = async (): Promise<Evaluators> => {
   );
   const module = await WebAssembly.compile(fs.readFileSync(path.join(distDirectory, "infer.wasm")));
   const zig = await createEngine(module, weightsBuffer.slice(0));
+  const searchEngine = await createSearchEngine(
+    await WebAssembly.compile(fs.readFileSync(searchWasmPath)),
+    weightsBuffer.slice(0),
+  );
   const moka = GoModelRuntime.create(manifest, weightsBuffer.slice(0));
 
   return {
     zig: (features) => zig.infer(features),
     moka: (features) => moka.infer(features),
+    search: (state, options) => searchEngine.search(state, options),
   };
 };
 
@@ -84,6 +91,7 @@ const parseConfig = (): MatchConfig => {
       games: { type: "string", default: "100" },
       time: { type: "string", default: "100" },
       "max-visits": { type: "string" },
+      batch: { type: "string", default: "1" },
       "opening-moves": { type: "string", default: "4" },
       parallel: { type: "string", default: "4" },
       seed: { type: "string", default: "1" },
@@ -108,6 +116,7 @@ const parseConfig = (): MatchConfig => {
     games,
     timeMs: Number(values.time),
     maxVisits: values["max-visits"] === undefined ? undefined : Number(values["max-visits"]),
+    batch: Number(values.batch),
     openingMoves: Number(values["opening-moves"]),
     parallel: Math.min(Number(values.parallel), os.availableParallelism()),
     seed: Number(values.seed),
@@ -116,9 +125,9 @@ const parseConfig = (): MatchConfig => {
 
 const runWorker = async () => {
   const config = workerData as MatchConfig;
-  const evaluators = await loadEvaluators();
-  const first = createPlayer(config.first, evaluators, config);
-  const second = createPlayer(config.second, evaluators, config);
+  const engines = await loadEngines();
+  const first = createPlayer(config.first, engines, config);
+  const second = createPlayer(config.second, engines, config);
 
   parentPort!.on("message", (task: GameTask | null) => {
     if (task === null) {
@@ -132,9 +141,9 @@ const runWorker = async () => {
 
 const runMain = async () => {
   const config = parseConfig();
-  const evaluators = await loadEvaluators();
+  const engines = await loadEngines();
   const tasks = createTasks(
-    createOpenings(config.games / 2, config.openingMoves, evaluators.zig, config.seed),
+    createOpenings(config.games / 2, config.openingMoves, engines.zig, config.seed),
   );
   const results: GameResult[] = [];
   const timings: GameTiming[] = [];

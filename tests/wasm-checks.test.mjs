@@ -11,6 +11,28 @@ const ARTIFACTS = [
   { name: "infer.wasm", extraExports: [] },
   { name: "infer-safe.wasm", extraExports: [] },
   { name: "infer-profile.wasm", extraExports: ["forward_trunk"] },
+  {
+    name: "search.wasm",
+    extraExports: [
+      "moves_ptr",
+      "position_ptr",
+      "rules_area_score",
+      "rules_dead_stones",
+      "rules_encode",
+      "rules_is_game_over",
+      "rules_legal_moves",
+      "rules_play",
+      "search_best_move",
+      "search_child_count",
+      "search_child_move",
+      "search_child_visits",
+      "search_node_capacity",
+      "search_nodes",
+      "search_run",
+      "search_start",
+      "search_visits",
+    ],
+  },
 ];
 const PUBLISHED_ARTIFACT = "infer.wasm";
 const PUBLISHED_MODEL_ID = "moka-9";
@@ -132,7 +154,7 @@ for (const id of modelIds) {
       assert.equal(limits.count, 1);
       assert.equal(limits.maximum, limits.initial);
 
-      if (id === PUBLISHED_MODEL_ID && artifact !== "infer-profile.wasm") {
+      if (id === PUBLISHED_MODEL_ID && artifact.startsWith("infer") && artifact !== "infer-profile.wasm") {
         assert.equal(limits.initial, PUBLISHED_MEMORY_PAGES);
       }
     });

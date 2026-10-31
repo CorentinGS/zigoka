@@ -18,8 +18,10 @@ const WORKER_URL = "/demo/dist/match-worker.js";
 const OPENING_MOVES = 4;
 const SEED = 1;
 const DEFAULT_PARALLEL = 4;
+const BATCH = 1;
 
 const PLAYER_LABELS: Record<PlayerKind, string> = {
+  "zig-search": "Zig + search in WASM",
   "zig-puct": "Zig + search",
   "moka-puct": "Moka + search",
   "zig-policy": "Zig, top move",
@@ -354,6 +356,7 @@ const readConfig = (): MatchConfig | string => {
     second: secondSelect.value,
     games,
     timeMs,
+    batch: BATCH,
     openingMoves: OPENING_MOVES,
     parallel: Math.min(parallel, games),
     seed: SEED,
@@ -404,7 +407,7 @@ const applyQuery = () => {
   const first = parameters.get("first");
   const second = parameters.get("second");
 
-  fillPlayerSelect(firstSelect, isPlayerKind(first) ? first : "zig-puct");
+  fillPlayerSelect(firstSelect, isPlayerKind(first) ? first : "zig-search");
   fillPlayerSelect(secondSelect, isPlayerKind(second) ? second : "moka-puct");
   parallelInput.value = String(Math.min(DEFAULT_PARALLEL, navigator.hardwareConcurrency || 1));
 

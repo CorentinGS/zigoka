@@ -30,12 +30,13 @@ interface Engine {
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const createEngine = async (
+/** Instantiates `module` and loads `weights` after checking their length and digest. */
+const instantiateWithWeights = async <Exports extends InferExports>(
   module: WebAssembly.Module,
   weights: ArrayBuffer,
-): Promise<Engine> => {
+): Promise<Exports> => {
   const instance = await WebAssembly.instantiate(module, {});
-  const exports = instance.exports as unknown as InferExports;
+  const exports = instance.exports as unknown as Exports;
   const memory = exports.memory.buffer;
   const weightsCapacity = exports.weights_capacity();
 
@@ -57,6 +58,15 @@ const createEngine = async (
   new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
   exports.load_weights();
 
+  return exports;
+};
+
+const createEngine = async (
+  module: WebAssembly.Module,
+  weights: ArrayBuffer,
+): Promise<Engine> => {
+  const exports = await instantiateWithWeights(module, weights);
+  const memory = exports.memory.buffer;
   const featureCount = exports.feature_count();
   const input = new Float32Array(memory, exports.input_ptr(), featureCount);
   const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
@@ -84,5 +94,5 @@ const createEngine = async (
   };
 };
 
-export { createEngine };
-export type { Engine };
+export { createEngine, instantiateWithWeights };
+export type { Engine, InferExports };

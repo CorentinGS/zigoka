@@ -31,7 +31,7 @@ type SearchNode = {
 
 type SearchLimits = { timeMs: number; maxVisits?: number };
 
-type SearchResult = { move: number; visits: number };
+type SearchResult = { move: number; visits: number; children: { move: number; visits: number }[] };
 
 const getCandidateMoves = (state: GoGameState) => {
   const legalMoves = getLegalMoves(state);
@@ -187,7 +187,11 @@ const search = (state: GoGameState, evaluate: Evaluate, limits: SearchLimits): S
     }
   }
 
-  return { move: root.moves[best], visits: root.visitCount };
+  return {
+    move: root.moves[best],
+    visits: root.visitCount,
+    children: root.moves.map((move, index) => ({ move, visits: root.childVisits[index] })),
+  };
 };
 
 export { getCandidateMoves, search };

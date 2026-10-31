@@ -85,6 +85,15 @@ const nodeBundles = [
     entryPoints: [resolve("match/match.ts")],
     outfile: resolve("match/dist/match.js"),
   },
+  {
+    entryPoints: [resolve("tests/moka-rules.ts")],
+    outfile: resolve("tests/dist/moka-rules-9.js"),
+  },
+  {
+    entryPoints: [resolve("tests/moka-rules.ts")],
+    outfile: resolve("tests/dist/moka-rules-19.js"),
+    plugins: [substituteConstants19],
+  },
 ];
 
 const buildBundle = async ({ entryPoints, outfile }) => {
@@ -156,6 +165,10 @@ const copyModelFiles = (id, destinationDirectory) => {
 const copyPublishedFiles = () => {
   copyModelFiles(PUBLISHED_MODEL_ID, resolve("dist"));
   copyIfPresent(resolve(`zig-out/${PUBLISHED_MODEL_ID}/infer.wasm`), resolve("dist/infer.wasm"));
+  copyIfPresent(
+    resolve(`zig-out/${PUBLISHED_MODEL_ID}/search.wasm`),
+    resolve("demo/dist/search.wasm"),
+  );
 };
 
 const writeBenchmarkInputs = (id) => {

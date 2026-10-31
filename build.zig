@@ -7,11 +7,28 @@ const Model = struct {
     id: []const u8,
     directory: []const u8,
     memory_pages: u32,
+    search: SearchCapacity,
+};
+
+const SearchCapacity = struct {
+    nodes: u32,
+    edges: u32,
+    memory_pages: u32,
 };
 
 const MODELS = [_]Model{
-    .{ .id = "moka-9", .directory = "vendor/moka/model", .memory_pages = 13 },
-    .{ .id = "synthetic-19", .directory = "models/synthetic-19", .memory_pages = 66 },
+    .{
+        .id = "moka-9",
+        .directory = "vendor/moka/model",
+        .memory_pages = 13,
+        .search = .{ .nodes = 8192, .edges = 524_288, .memory_pages = 332 },
+    },
+    .{
+        .id = "synthetic-19",
+        .directory = "models/synthetic-19",
+        .memory_pages = 66,
+        .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 580 },
+    },
 };
 
 const WasmTargets = struct {
@@ -19,6 +36,7 @@ const WasmTargets = struct {
     wasm: *std.Build.Step,
     wasm_safe: *std.Build.Step,
     wasm_profile: *std.Build.Step,
+    search: *std.Build.Step,
 };
 
 pub fn build(b: *std.Build) void {
@@ -48,6 +66,7 @@ pub fn build(b: *std.Build) void {
         .wasm = b.step("wasm", "Build zig-out/<id>/infer.wasm"),
         .wasm_safe = b.step("wasm-safe", "Build zig-out/<id>/infer-safe.wasm (ReleaseSafe)"),
         .wasm_profile = b.step("wasm-profile", "Build zig-out/<id>/infer-profile.wasm, which also exports forward_trunk"),
+        .search = b.step("search", "Build zig-out/<id>/search.wasm: inference, Moka's rules and PUCT search"),
     };
     const test_step = b.step("test", "Run the native Zig tests");
 
@@ -85,9 +104,19 @@ pub fn build(b: *std.Build) void {
         memory_options.addOption(u32, "stack_bytes", WASM_STACK_BYTES);
         const memory_config = memory_options.createModule();
 
-        targets.wasm.dependOn(&addInferWasm(b, model, "infer", "src/infer/exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config).step);
-        targets.wasm_safe.dependOn(&addInferWasm(b, model, "infer-safe", "src/infer/exports.zig", .ReleaseSafe, targets.target, model_layout_source, memory_config).step);
-        targets.wasm_profile.dependOn(&addInferWasm(b, model, "infer-profile", "src/infer/profile_exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config).step);
+        targets.wasm.dependOn(&addInferWasm(b, model, "infer", "src/infer/exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config, model.memory_pages).step);
+        targets.wasm_safe.dependOn(&addInferWasm(b, model, "infer-safe", "src/infer/exports.zig", .ReleaseSafe, targets.target, model_layout_source, memory_config, model.memory_pages).step);
+        targets.wasm_profile.dependOn(&addInferWasm(b, model, "infer-profile", "src/infer/profile_exports.zig", .ReleaseFast, targets.target, model_layout_source, memory_config, model.memory_pages).step);
+
+        const search_memory_options = b.addOptions();
+        search_memory_options.addOption(u32, "memory_pages", model.search.memory_pages);
+        search_memory_options.addOption(u32, "stack_bytes", WASM_STACK_BYTES);
+        const search_options = b.addOptions();
+        search_options.addOption(u32, "nodes", model.search.nodes);
+        search_options.addOption(u32, "edges", model.search.edges);
+        const search_wasm = addInferWasm(b, model, "search", "src/search_exports.zig", .ReleaseFast, targets.target, model_layout_source, search_memory_options.createModule(), model.search.memory_pages);
+        search_wasm.artifact.root_module.addImport("search_config", search_options.createModule());
+        targets.search.dependOn(&search_wasm.step);
 
         const test_options = b.addOptions();
         const fixtures_root = if (std.fs.path.isAbsolute(fixtures)) b.graph.cwdRelativePath(fixtures) else b.path(fixtures);
@@ -138,6 +167,7 @@ fn addInferWasm(
     target: std.Build.ResolvedTarget,
     model_layout_source: std.Build.LazyPath,
     memory_config: *std.Build.Module,
+    memory_pages: u32,
 ) *std.Build.Step.InstallArtifact {
     const wasm = b.addExecutable(.{
         .name = name,
@@ -165,8 +195,8 @@ fn addInferWasm(
     wasm.rdynamic = true;
     wasm.import_memory = false;
     wasm.export_memory = true;
-    wasm.initial_memory = model.memory_pages * WASM_PAGE_BYTES;
-    wasm.max_memory = model.memory_pages * WASM_PAGE_BYTES;
+    wasm.initial_memory = memory_pages * WASM_PAGE_BYTES;
+    wasm.max_memory = memory_pages * WASM_PAGE_BYTES;
     wasm.stack_size = WASM_STACK_BYTES;
     return b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = model.id } } });
 }
