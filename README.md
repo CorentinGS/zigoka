@@ -142,6 +142,31 @@ Le contrôle montre que le banc ne favorise aucun côté. Ces Elo décrivent cet
 recherche simple (sans réutilisation de l'arbre ni lots) sur 50 ouvertures ;
 avec plus de temps par coup, l'écart devrait se réduire.
 
+### Vidéo
+
+`video/` est un projet [Remotion](https://www.remotion.dev/), avec ses propres
+dépendances, qui rejoue un match enregistré : 10 parties en parallèle, un
+goban par partie, et les statistiques qui évoluent à chaque coup et à chaque
+résultat. Remotion rend la vidéo image par image, sans tenir le temps réel :
+la vidéo rejoue donc les coups et les temps d'un vrai match au lieu de lancer
+la recherche pendant le rendu.
+
+```sh
+pnpm match --games 100 --parallel 10 --time 100
+cd video
+pnpm install
+pnpm data      # dernier enregistrement de bench/results vers src/match-data.json
+pnpm render    # out/zig-match.mp4
+```
+
+Avec 10 parties à la fois sur 8 cœurs, chaque recherche a moins de CPU : Zig
+fait environ 264 visites par coup et Moka 9,4 dans l'enregistrement fourni
+(94 V, 1 D, 5 N pour Zig).
+
+Remotion n'est pas sous licence MIT : son usage est gratuit pour les
+particuliers et les entreprises de 3 personnes au plus, et demande une licence
+entreprise au-delà.
+
 ## Intégration
 
 Le point de départ est une page qui suit le

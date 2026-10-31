@@ -29,6 +29,8 @@ const rootDirectory = path.resolve(path.dirname(scriptPath), "..", "..");
 const distDirectory = path.join(rootDirectory, "dist");
 const resultsDirectory = path.join(rootDirectory, "bench", "results");
 
+type GameTiming = { index: number; slot: number; startMs: number; endMs: number };
+
 const loadEvaluators = async (): Promise<Evaluators> => {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(distDirectory, "go-model.json"), "utf8"),
@@ -135,23 +137,31 @@ const runMain = async () => {
     createOpenings(config.games / 2, config.openingMoves, evaluators.zig, config.seed),
   );
   const results: GameResult[] = [];
+  const timings: GameTiming[] = [];
   const startedAt = performance.now();
   let nextTask = 0;
 
   await Promise.all(
-    Array.from({ length: config.parallel }, () => {
+    Array.from({ length: config.parallel }, (_, slot) => {
       const worker = new Worker(scriptPath, { workerData: config });
+      let timing: GameTiming | null = null;
 
       return new Promise<void>((resolve, reject) => {
         worker.on("error", reject);
         worker.on("exit", () => resolve());
         worker.on("message", (result: GameResult | null) => {
-          if (result !== null) {
+          const now = performance.now() - startedAt;
+
+          if (result !== null && timing !== null) {
             results.push(result);
+            timings.push({ ...timing, endMs: now });
             process.stderr.write(`\r${results.length} / ${tasks.length} games`);
           }
 
-          worker.postMessage(nextTask < tasks.length ? tasks[nextTask++] : null);
+          const task = nextTask < tasks.length ? tasks[nextTask++] : null;
+
+          timing = task === null ? null : { index: task.index, slot, startMs: now, endMs: now };
+          worker.postMessage(task);
         });
       });
     }),
@@ -159,6 +169,7 @@ const runMain = async () => {
 
   process.stderr.write("\n");
   results.sort((left, right) => left.index - right.index);
+  timings.sort((left, right) => left.index - right.index);
 
   const summary = summarize(config, results);
   const outputPath = path.join(
@@ -169,7 +180,7 @@ const runMain = async () => {
   printSummary(summary);
   console.log(`  wall time ${((performance.now() - startedAt) / 1000).toFixed(0)} s`);
   fs.mkdirSync(resultsDirectory, { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify({ summary, results }, null, 2)}\n`);
+  fs.writeFileSync(outputPath, `${JSON.stringify({ summary, results, timings }, null, 2)}\n`);
   console.log(`Results written to ${path.relative(rootDirectory, outputPath)}`);
 };
 

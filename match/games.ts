@@ -38,6 +38,8 @@ type GameTask = { index: number; opening: number[]; firstPlaysBlack: boolean };
 
 type SideStats = { moves: number; visits: number; thinkingMs: number };
 
+type MoveRecord = { move: number; visits: number; thinkingMs: number };
+
 type GameResult = {
   index: number;
   opening: number[];
@@ -45,6 +47,7 @@ type GameResult = {
   score: number;
   firstResult: 1 | 0 | -1;
   moveCount: number;
+  moves: MoveRecord[];
   first: SideStats;
   second: SideStats;
 };
@@ -102,6 +105,7 @@ const playGame = (
     first: { moves: 0, visits: 0, thinkingMs: 0 },
     second: { moves: 0, visits: 0, thinkingMs: 0 },
   };
+  const moves: MoveRecord[] = [];
   let state = playOpening(task.opening);
 
   while (!isGameOver(state)) {
@@ -115,6 +119,7 @@ const playGame = (
     side.thinkingMs += thinkingMs;
     side.moves += 1;
     side.visits += visits;
+    moves.push({ move, visits, thinkingMs });
 
     const next = playMove(state, move);
 
@@ -136,6 +141,7 @@ const playGame = (
     score,
     firstResult: (task.firstPlaysBlack ? blackResult : -blackResult) as 1 | 0 | -1,
     moveCount: state.moveCount,
+    moves,
     ...stats,
   };
 };
@@ -265,5 +271,6 @@ export type {
   MatchConfig,
   MatchSummary,
   MoveEvent,
+  MoveRecord,
   PlayerKind,
 };
