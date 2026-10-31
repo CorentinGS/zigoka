@@ -19,10 +19,10 @@ type LevelSpec = {
 };
 
 const LEVELS: LevelSpec[] = [
-  { id: "beginner", label: "Débutant", usesSearch: false, timeMs: 0 },
-  { id: "easy", label: "Facile", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Moyen", usesSearch: true, maxVisits: 80, timeMs: 1000 },
-  { id: "strong", label: "Fort", usesSearch: true, maxVisits: 320, timeMs: 2000 },
+  { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
+  { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
+  { id: "medium", label: "Medium", usesSearch: true, maxVisits: 80, timeMs: 1000 },
+  { id: "strong", label: "Strong", usesSearch: true, maxVisits: 320, timeMs: 2000 },
 ];
 
 const LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level])) as Record<

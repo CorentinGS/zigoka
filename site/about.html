@@ -1,73 +1,46 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>À propos — Zigoka</title>
-    <meta
-      name="description"
-      content="Zigoka, le moteur de Go 9×9 en Zig/WASM : recherche PUCT dans le navigateur, réseau Moka 9×9 de Million Software, règles (ko simple, komi 7) et vie privée."
-    />
+    <title>About — Zigoka</title>
+    <meta name="description" content="How Zigoka plays 9×9 Go in your browser." />
     <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
     <main>
       <header>
         <h1>Zigoka</h1>
-        <nav><a href="./index.html">Jouer</a></nav>
+        <nav><a href="./index.html">Play</a></nav>
       </header>
       <article>
         <section>
-          <h2>Le moteur</h2>
+          <h2>Engine</h2>
           <p>
-            <strong>Zigoka</strong> est le moteur de go de ce dépôt, écrit en
-            <strong>Zig</strong> et compilé en WebAssembly. La page charge
-            deux modules : <code>infer.wasm</code>, qui exécute le réseau de neurones en
-            inférence, et <code>search.wasm</code>, qui mène une recherche arborescente de type
-            PUCT (prédiction du réseau + Upper Confidence Bound appliqué aux arbres) pour choisir
-            les coups. Le niveau choisi règle le nombre de visites et le temps de réflexion par
-            coup ; le niveau « Débutant » joue le meilleur coup du réseau sans recherche.
+            Written in Zig, compiled to WebAssembly. Beginner plays the network's top
+            move; the other levels add a PUCT tree search.
           </p>
         </section>
         <section>
-          <h2>Le réseau</h2>
+          <h2>Network</h2>
           <p>
-            Le réseau de neurones <strong>Moka 9×9</strong> a été entraîné par Million Software
-            pour le Go sur petit plateau. Il est distribué sous licence MIT avec ses mentions
-            tierces :
-            <a href="./moka-license.txt">moka-license.txt</a> et
-            <a href="./moka-notices.txt">moka-notices.txt</a>.
+            Moka 9×9 by Million Software, MIT license
+            (<a href="./moka-license.txt">license</a>,
+            <a href="./moka-notices.txt">notices</a>).
           </p>
         </section>
         <section>
-          <h2>Les règles</h2>
-          <p>La partie suit les règles retenues par le moteur Moka :</p>
-          <ul>
-            <li>ko simple (une capture immédiate qui répète la position est interdite) ;</li>
-            <li>suicide interdit ;</li>
-            <li>score par superficie (area scoring) ;</li>
-            <li>komi de 7 points pour blanc.</li>
-          </ul>
+          <h2>Rules</h2>
           <p>
-            Deux passes consécutives (ou la limite de coups du moteur) terminent la partie : les
-            pierres mortes sont retirées, puis le score de superficie est affiché.
+            Simple ko, no suicide, area scoring, komi 7. Two passes end the game; dead
+            stones are removed before scoring.
           </p>
         </section>
         <section>
-          <h2>Vie privée</h2>
-          <p>
-            Tout s’exécute dans votre navigateur : la page, le moteur et le réseau sont servis
-            une fois, puis chaque coup est calculé localement. Aucune donnée de partie ne quitte
-            votre machine.
-          </p>
+          <h2>Privacy</h2>
+          <p>Everything runs in your browser. No game data leaves your machine.</p>
         </section>
       </article>
-      <footer>
-        <p>
-          Réseau de neurones : Moka 9×9 de Million Software, licence MIT —
-          <a href="./index.html">jouer</a>.
-        </p>
-      </footer>
     </main>
   </body>
 </html>

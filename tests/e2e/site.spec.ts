@@ -11,13 +11,15 @@ const TEST_TIMEOUT_MS = 120_000;
 // board, even with the engine answering passes by playing.
 const MAX_PASS_ROUNDS = 130;
 
+const YOUR_MOVE = "Your move (black).";
+
 const openSite = async (page: Page, query = "") => {
   await page.goto(`/site/index.html${query}`);
   await expect(page.locator("#level")).toHaveValue("beginner");
   await expect(page.locator("body")).toHaveAttribute("data-state", "human", {
     timeout: LOADING_TIMEOUT_MS,
   });
-  await expect(page.locator("#status")).toHaveText("À vous de jouer (noir).");
+  await expect(page.locator("#status")).toHaveText(YOUR_MOVE);
 };
 
 const playOneExchange = async (page: Page) => {
@@ -39,7 +41,7 @@ test("the site answers a human move under a strict CSP", async ({ page }) => {
 
   await expect(page.locator('#board [data-stone="black"]')).toHaveCount(1);
   await expect(page.locator('#board [data-stone="white"]')).toHaveCount(1);
-  await expect(page.locator("#status")).toHaveText("À vous de jouer (noir).");
+  await expect(page.locator("#status")).toHaveText(YOUR_MOVE);
 });
 
 test("undo after one exchange restores the initial position", async ({ page }) => {
@@ -51,7 +53,7 @@ test("undo after one exchange restores the initial position", async ({ page }) =
 
   await expect(page.locator("#board [data-stone]")).toHaveCount(0);
   await expect(page.locator("body")).toHaveAttribute("data-state", "human");
-  await expect(page.locator("#status")).toHaveText("À vous de jouer (noir).");
+  await expect(page.locator("#status")).toHaveText(YOUR_MOVE);
 });
 
 test("passing until both sides pass ends the game with a score", async ({ page }) => {
@@ -88,6 +90,6 @@ test("passing until both sides pass ends the game with a score", async ({ page }
 
   await expect(page.locator("body")).toHaveAttribute("data-state", "over");
   await expect(page.locator("#status")).toHaveText(
-    /^Fin de la partie : (B|W)\+\d+ \(komi 7\)/,
+    /^Game over: (B|W)\+\d+ \(komi 7\)/,
   );
 });

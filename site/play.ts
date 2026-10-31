@@ -34,8 +34,8 @@ const resignButton = getElement<HTMLButtonElement>("resign");
 const undoButton = getElement<HTMLButtonElement>("undo");
 const newGameButton = getElement<HTMLButtonElement>("new-game");
 
-/** French labels for the two stone colors, as used in the status line. */
-const getColorLabel = (color: number) => (color === GO_BLACK_COLOR ? "noir" : "blanc");
+/** Labels for the two stone colors, as used in the status line. */
+const getColorLabel = (color: number) => (color === GO_BLACK_COLOR ? "black" : "white");
 
 // history[k] is the state before move k (history[0] is the empty board), so the
 // current state is always the last snapshot and moves.length === history.length - 1.
@@ -104,7 +104,7 @@ const renderMoves = () => {
       const item = document.createElement("li");
 
       item.textContent = `${getColorLabel(played.color)} ${
-        played.move === GO_PASS_MOVE ? "passe" : formatMove(played.move)
+        played.move === GO_PASS_MOVE ? "pass" : formatMove(played.move)
       }`;
 
       return item;
@@ -123,7 +123,7 @@ const finishGame = () => {
 
   deadMoves = getAutomaticallyDeadMoves(current);
   const score = getAreaScore(removeDeadStones(current, deadMoves));
-  setPageState("over", `Fin de la partie : ${formatScore(score)} (komi 7)`);
+  setPageState("over", `Game over: ${formatScore(score)} (komi 7)`);
 };
 
 const requestEngineMove = () => {
@@ -132,7 +132,7 @@ const requestEngineMove = () => {
 
   nextRequestId += 1;
   pendingRequestId = requestId;
-  setPageState("thinking", `Le moteur réfléchit (${getColorLabel(current.nextColor)})…`);
+  setPageState("thinking", `Thinking (${getColorLabel(current.nextColor)})…`);
   worker.postMessage({
     type: "move",
     requestId,
@@ -158,7 +158,7 @@ const beginTurn = (suffix = "") => {
     return;
   }
 
-  setPageState("human", `À vous de jouer (${getColorLabel(current.nextColor)}).${suffix}`);
+  setPageState("human", `Your move (${getColorLabel(current.nextColor)}).${suffix}`);
 };
 
 const recordMove = (move: number, color: number, nextState: GoGameState) => {
@@ -171,7 +171,7 @@ const applyEngineMove = (move: number, visits: number) => {
   const nextState = playMove(current, move);
 
   if (!nextState) {
-    setPageState("error", `Le moteur a choisi un coup illégal (${formatMove(move)}).`);
+    setPageState("error", `The engine chose an illegal move (${formatMove(move)}).`);
 
     return;
   }
@@ -179,7 +179,7 @@ const applyEngineMove = (move: number, visits: number) => {
   recordMove(move, current.nextColor, nextState);
   render();
 
-  const suffix = readLevel().usesSearch ? ` (${visits} visites)` : "";
+  const suffix = readLevel().usesSearch ? ` (${visits} visits)` : "";
 
   beginTurn(suffix);
 };
@@ -194,7 +194,7 @@ const playHumanMove = (move: number) => {
 
   if (!nextState) {
     // Illegal clicks (occupied point, ko, suicide) are ignored; the status keeps
-    // the exact "À vous de jouer (…)." text the page contract promises.
+    // the exact "Your move (…)." text the page contract promises.
     return;
   }
 
@@ -212,7 +212,7 @@ const resign = () => {
   const winnerLetter = humanColor === GO_BLACK_COLOR ? "W" : "B";
 
   pendingRequestId = null;
-  setPageState("over", `Fin de la partie : ${winnerLetter}+R (abandon)`);
+  setPageState("over", `Game over: ${winnerLetter}+R (resignation)`);
 };
 
 const undo = () => {
@@ -260,7 +260,7 @@ worker.addEventListener("message", (event: MessageEvent<SiteWorkerResponse>) => 
 
   if (response.type === "error") {
     pendingRequestId = null;
-    setPageState("error", `Erreur du moteur : ${response.error}`);
+    setPageState("error", `Engine error: ${response.error}`);
 
     return;
   }
@@ -276,7 +276,7 @@ worker.addEventListener("message", (event: MessageEvent<SiteWorkerResponse>) => 
 
 worker.addEventListener("error", () => {
   pendingRequestId = null;
-  setPageState("error", "Impossible de charger le moteur (engine-worker.js).");
+  setPageState("error", "Could not load the engine (engine-worker.js).");
 });
 
 board.addEventListener("click", (event) => {
@@ -327,5 +327,5 @@ undoButton.addEventListener("click", undo);
 newGameButton.addEventListener("click", startGame);
 
 render();
-setPageState("loading", "Chargement du moteur…");
+setPageState("loading", "Loading the engine…");
 worker.postMessage({ type: "init" });

@@ -1,0 +1,31 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
+/
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/index.html
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/about
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/about.html
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/engine-worker.js
+  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'
+  Cache-Control: public, max-age=3600
+
+/infer.wasm
+  Cache-Control: public, max-age=86400
+
+/search.wasm
+  Cache-Control: public, max-age=86400
+
+/go-model.json
+  Cache-Control: public, max-age=86400
+
+/go-model.bin
+  Cache-Control: public, max-age=86400

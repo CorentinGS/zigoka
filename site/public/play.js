@@ -484,10 +484,10 @@ var isGameOver = (gameState) => gameState.consecutivePassCount >= GO_GAME_OVER_P
 
 // site/protocol.ts
 var LEVELS = [
-  { id: "beginner", label: "D\xE9butant", usesSearch: false, timeMs: 0 },
-  { id: "easy", label: "Facile", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Moyen", usesSearch: true, maxVisits: 80, timeMs: 1e3 },
-  { id: "strong", label: "Fort", usesSearch: true, maxVisits: 320, timeMs: 2e3 }
+  { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
+  { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
+  { id: "medium", label: "Medium", usesSearch: true, maxVisits: 80, timeMs: 1e3 },
+  { id: "strong", label: "Strong", usesSearch: true, maxVisits: 320, timeMs: 2e3 }
 ];
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 
@@ -508,7 +508,7 @@ var passButton = getElement("pass");
 var resignButton = getElement("resign");
 var undoButton = getElement("undo");
 var newGameButton = getElement("new-game");
-var getColorLabel = (color) => color === GO_BLACK_COLOR ? "noir" : "blanc";
+var getColorLabel = (color) => color === GO_BLACK_COLOR ? "black" : "white";
 var history = [createGameState()];
 var moves = [];
 var deadMoves = [];
@@ -554,7 +554,7 @@ var renderMoves = () => {
   movesElement.replaceChildren(
     ...moves.map((played) => {
       const item = document.createElement("li");
-      item.textContent = `${getColorLabel(played.color)} ${played.move === GO_PASS_MOVE ? "passe" : formatMove(played.move)}`;
+      item.textContent = `${getColorLabel(played.color)} ${played.move === GO_PASS_MOVE ? "pass" : formatMove(played.move)}`;
       return item;
     })
   );
@@ -568,14 +568,14 @@ var finishGame = () => {
   const current = currentState();
   deadMoves = getAutomaticallyDeadMoves(current);
   const score = getAreaScore(removeDeadStones(current, deadMoves));
-  setPageState("over", `Fin de la partie : ${formatScore(score)} (komi 7)`);
+  setPageState("over", `Game over: ${formatScore(score)} (komi 7)`);
 };
 var requestEngineMove = () => {
   const current = currentState();
   const requestId = nextRequestId;
   nextRequestId += 1;
   pendingRequestId = requestId;
-  setPageState("thinking", `Le moteur r\xE9fl\xE9chit (${getColorLabel(current.nextColor)})\u2026`);
+  setPageState("thinking", `Thinking (${getColorLabel(current.nextColor)})\u2026`);
   worker.postMessage({
     type: "move",
     requestId,
@@ -594,7 +594,7 @@ var beginTurn = (suffix = "") => {
     requestEngineMove();
     return;
   }
-  setPageState("human", `\xC0 vous de jouer (${getColorLabel(current.nextColor)}).${suffix}`);
+  setPageState("human", `Your move (${getColorLabel(current.nextColor)}).${suffix}`);
 };
 var recordMove = (move, color, nextState) => {
   moves.push({ move, color });
@@ -604,12 +604,12 @@ var applyEngineMove = (move, visits) => {
   const current = currentState();
   const nextState = playMove(current, move);
   if (!nextState) {
-    setPageState("error", `Le moteur a choisi un coup ill\xE9gal (${formatMove(move)}).`);
+    setPageState("error", `The engine chose an illegal move (${formatMove(move)}).`);
     return;
   }
   recordMove(move, current.nextColor, nextState);
   render();
-  const suffix = readLevel().usesSearch ? ` (${visits} visites)` : "";
+  const suffix = readLevel().usesSearch ? ` (${visits} visits)` : "";
   beginTurn(suffix);
 };
 var playHumanMove = (move) => {
@@ -631,7 +631,7 @@ var resign = () => {
   }
   const winnerLetter = humanColor === GO_BLACK_COLOR ? "W" : "B";
   pendingRequestId = null;
-  setPageState("over", `Fin de la partie : ${winnerLetter}+R (abandon)`);
+  setPageState("over", `Game over: ${winnerLetter}+R (resignation)`);
 };
 var undo = () => {
   if (pageState !== "human") {
@@ -669,7 +669,7 @@ worker.addEventListener("message", (event) => {
   }
   if (response.type === "error") {
     pendingRequestId = null;
-    setPageState("error", `Erreur du moteur : ${response.error}`);
+    setPageState("error", `Engine error: ${response.error}`);
     return;
   }
   if (pendingRequestId !== response.requestId) {
@@ -680,7 +680,7 @@ worker.addEventListener("message", (event) => {
 });
 worker.addEventListener("error", () => {
   pendingRequestId = null;
-  setPageState("error", "Impossible de charger le moteur (engine-worker.js).");
+  setPageState("error", "Could not load the engine (engine-worker.js).");
 });
 board.addEventListener("click", (event) => {
   const target = event.target;
@@ -716,5 +716,5 @@ resignButton.addEventListener("click", resign);
 undoButton.addEventListener("click", undo);
 newGameButton.addEventListener("click", startGame);
 render();
-setPageState("loading", "Chargement du moteur\u2026");
+setPageState("loading", "Loading the engine\u2026");
 worker.postMessage({ type: "init" });

@@ -332,10 +332,10 @@ var encodeStudentFeatures = (gameState) => {
 
 // site/protocol.ts
 var LEVELS = [
-  { id: "beginner", label: "D\xE9butant", usesSearch: false, timeMs: 0 },
-  { id: "easy", label: "Facile", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Moyen", usesSearch: true, maxVisits: 80, timeMs: 1e3 },
-  { id: "strong", label: "Fort", usesSearch: true, maxVisits: 320, timeMs: 2e3 }
+  { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
+  { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
+  { id: "medium", label: "Medium", usesSearch: true, maxVisits: 80, timeMs: 1e3 },
+  { id: "strong", label: "Strong", usesSearch: true, maxVisits: 320, timeMs: 2e3 }
 ];
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 
