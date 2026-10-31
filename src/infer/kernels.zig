@@ -58,27 +58,44 @@ inline fn accumulate(
     return acc;
 }
 
-/// Positions computed together by `accumulateBlock`, so that each weight vector serves all of them.
-fn positionBlock(comptime outputs: usize) usize {
-    return if (outputs % 4 == 0 and outputs <= POSITION_BLOCK_MAX_OUTPUTS) POSITION_BLOCK else 1;
+/// Positions and output lanes computed together by `accumulateTile`: each weight vector serves every
+/// position of the tile, and the accumulators of a tile stay in registers.
+const Tile = struct { positions: usize, lanes: usize };
+
+fn tileFor(comptime outputs: usize) Tile {
+    if (outputs % 4 != 0) return .{ .positions = 1, .lanes = 0 };
+    for (TILES) |entry| {
+        if (entry.outputs == outputs) return entry.tile;
+    }
+    return .{ .positions = 1, .lanes = outputs / 4 };
 }
 
-const POSITION_BLOCK = 2;
-const POSITION_BLOCK_MAX_OUTPUTS = 16;
+/// Measured in V8: past about 9 accumulators, the JIT spills them and a tile gets slower.
+const TILES = [_]struct { outputs: usize, tile: Tile }{
+    .{ .outputs = 4, .tile = .{ .positions = 2, .lanes = 1 } },
+    .{ .outputs = 8, .tile = .{ .positions = 2, .lanes = 2 } },
+    .{ .outputs = 12, .tile = .{ .positions = 2, .lanes = 3 } },
+    .{ .outputs = 16, .tile = .{ .positions = 2, .lanes = 4 } },
+    .{ .outputs = 24, .tile = .{ .positions = 3, .lanes = 3 } },
+    .{ .outputs = 32, .tile = .{ .positions = 2, .lanes = 4 } },
+    .{ .outputs = 48, .tile = .{ .positions = 3, .lanes = 3 } },
+};
 
-inline fn accumulateBlock(
+inline fn accumulateTile(
     comptime positions: usize,
     comptime taps: usize,
     comptime inputs: usize,
     comptime outputs: usize,
+    comptime lanes: usize,
+    comptime first_lane: usize,
     rows: [positions]*const [taps]u16,
     input: []const f32,
     weights: []const f32,
     bias: []const f32,
-) [positions][outputs / 4]Lane {
-    var acc: [positions][outputs / 4]Lane = undefined;
+) [positions][lanes]Lane {
+    var acc: [positions][lanes]Lane = undefined;
     inline for (0..positions) |p| {
-        inline for (0..outputs / 4) |lane| acc[p][lane] = bias[4 * lane ..][0..4].*;
+        inline for (0..lanes) |lane| acc[p][lane] = bias[4 * (first_lane + lane) ..][0..4].*;
     }
     for (0..taps) |tap| {
         var x_rows: [positions]*const [inputs]f32 = undefined;
@@ -87,8 +104,8 @@ inline fn accumulateBlock(
         for (0..inputs) |channel| {
             var xs: [positions]Lane = undefined;
             inline for (0..positions) |p| xs[p] = @splat(x_rows[p][channel]);
-            const w = w_tap[channel * outputs ..][0..outputs];
-            inline for (0..outputs / 4) |lane| {
+            const w = w_tap[channel * outputs + 4 * first_lane ..][0 .. 4 * lanes];
+            inline for (0..lanes) |lane| {
                 const w_lane: Lane = w[4 * lane ..][0..4].*;
                 inline for (0..positions) |p| acc[p][lane] = acc[p][lane] + xs[p] * w_lane;
             }
@@ -97,8 +114,8 @@ inline fn accumulateBlock(
     return acc;
 }
 
-inline fn storeLanes(comptime outputs: usize, comptime store: Store, acc: [outputs / 4]Lane, out: *[outputs]f32) void {
-    inline for (0..outputs / 4) |lane| {
+inline fn storeLanes(comptime lanes: usize, comptime store: Store, acc: [lanes]Lane, out: *[4 * lanes]f32) void {
+    inline for (0..lanes) |lane| {
         const target = out[4 * lane ..][0..4];
         target.* = switch (store) {
             .relu => reluLane(acc[lane]),
@@ -124,15 +141,22 @@ pub fn convolve(
     comptime std.debug.assert(taps == 9 or taps == 1);
     std.debug.assert(weights.len == taps * inputs * outputs);
     std.debug.assert(output.len >= Board.AREA * outputs);
-    const block = comptime positionBlock(outputs);
-    const blocked = Board.AREA - Board.AREA % block;
+    const tile = comptime tileFor(outputs);
+    const tiled = comptime tile.lanes > 0 and (tile.positions > 1 or tile.lanes < outputs / 4);
+    const blocked = if (tiled) Board.AREA - Board.AREA % tile.positions else 0;
     var first: usize = 0;
-    if (comptime block > 1) {
-        while (first < blocked) : (first += block) {
-            var rows: [block]*const [taps]u16 = undefined;
-            inline for (0..block) |p| rows[p] = if (taps == 9) &Board.CONV_NEIGHBORS[first + p] else &.{@intCast(first + p)};
-            const acc = accumulateBlock(block, taps, inputs, outputs, rows, input, weights, bias);
-            inline for (0..block) |p| storeLanes(outputs, store, acc[p], output[(first + p) * outputs ..][0..outputs]);
+    if (comptime tiled) {
+        comptime std.debug.assert((outputs / 4) % tile.lanes == 0);
+        while (first < blocked) : (first += tile.positions) {
+            var rows: [tile.positions]*const [taps]u16 = undefined;
+            inline for (0..tile.positions) |p| rows[p] = if (taps == 9) &Board.CONV_NEIGHBORS[first + p] else &.{@intCast(first + p)};
+            inline for (0..outputs / 4 / tile.lanes) |chunk| {
+                const first_lane = chunk * tile.lanes;
+                const acc = accumulateTile(tile.positions, taps, inputs, outputs, tile.lanes, first_lane, rows, input, weights, bias);
+                inline for (0..tile.positions) |p| {
+                    storeLanes(tile.lanes, store, acc[p], output[(first + p) * outputs + 4 * first_lane ..][0 .. 4 * tile.lanes]);
+                }
+            }
         }
     }
     for (first..Board.AREA) |position| {
@@ -140,7 +164,7 @@ pub fn convolve(
         const acc = accumulate(taps, inputs, outputs, rows, input, weights, bias);
         const out = output[position * outputs ..][0..outputs];
         if (comptime outputs % 4 == 0) {
-            storeLanes(outputs, store, acc, out);
+            storeLanes(outputs / 4, store, acc, out);
         } else {
             inline for (0..outputs) |index| {
                 out[index] = switch (store) {
@@ -211,6 +235,11 @@ test "SIMD convolutions match the scalar order bit for bit" {
         try expectSameAsScalar(board_size, 1, 16, 32, .add_to_trunk_relu);
         try expectSameAsScalar(board_size, 1, 32, 4, .relu);
         try expectSameAsScalar(board_size, 1, 32, 2, .relu);
+        try expectSameAsScalar(board_size, 9, 12, 48, .relu);
+        try expectSameAsScalar(board_size, 9, 24, 24, .relu);
+        try expectSameAsScalar(board_size, 1, 48, 24, .relu);
+        try expectSameAsScalar(board_size, 1, 24, 48, .add_to_trunk_relu);
+        try expectSameAsScalar(board_size, 1, 48, 4, .relu);
     }
 }
 

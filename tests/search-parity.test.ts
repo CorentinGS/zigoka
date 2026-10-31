@@ -35,6 +35,15 @@ const MODELS = [
     searchVisits: 150,
   },
   {
+    id: "moka-9-v2",
+    loadRules: () => loadRules(9),
+    randomGames: 10,
+    policyGames: 5,
+    deadStoneInterval: 5,
+    searchPositions: 8,
+    searchVisits: 150,
+  },
+  {
     id: "synthetic-19",
     loadRules: () => loadRules(19),
     randomGames: 4,

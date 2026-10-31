@@ -18,6 +18,13 @@ byte for byte from `vendor/moka/model/go-model.bin`, and its heads are
 resampled from Moka's head rows. It is distributed under the same MIT license.
 Its origin is recorded in `models/synthetic-19/PROVENANCE.md`.
 
+`vendor/moka-v2/` holds the Moka v2 model and its documentation, from commit
+`1ad518a3300cf14885293f1c8cfe4d840b975136` of the upstream `moka-v2` branch
+([millionco/moka#3](https://github.com/millionco/moka/pull/3), open when
+copied). It is under the same MIT license, reproduced in
+`vendor/moka-v2/LICENSE`, and is never modified either; its digests are in
+`vendor/moka-v2/VENDORED.md`.
+
 > MIT License
 >
 > Copyright (c) 2026 Million Software, Inc.

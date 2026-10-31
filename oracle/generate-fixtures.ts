@@ -31,7 +31,7 @@ import { createMulberry32 } from "./mulberry32.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(scriptDirectory, "..", "..");
-const vendorDirectory = path.join(rootDirectory, "vendor", "moka");
+const vendorDirectories = ["moka", "moka-v2"].map((name) => path.join(rootDirectory, "vendor", name));
 const fixturesDirectory = path.join(rootDirectory, "oracle", "fixtures");
 
 const PLANE_COUNT = GO_STUDENT_INPUT_PLANE_COUNT;
@@ -39,7 +39,8 @@ const FEATURE_COUNT = GO_BOARD_AREA * PLANE_COUNT;
 const MOVE_COUNT = GO_BOARD_AREA + 1;
 
 const FORMAT_VERSION = 2;
-const TRAINED_MODEL_ID = "moka-9";
+const TRAINED_MODEL_IDS = new Set(["moka-9", "moka-9-v2"]);
+const JOURNAL_PROBE_MODEL_ID = "moka-9";
 const JOURNAL_PROBE_BLACK_MOVES = [20, 24, 56, 60];
 
 type ValidationPlan =
@@ -427,7 +428,7 @@ const generateValidationDataset = (
     }
   }
 
-  if (model.id === TRAINED_MODEL_ID) {
+  if (model.id === JOURNAL_PROBE_MODEL_ID) {
     playJournalProbe(runtimes, dataset);
   }
 
@@ -524,12 +525,12 @@ const tensorFiles = (runtimes: Runtimes): Map<string, Buffer> => {
   return files;
 };
 
-const readVendoredDigests = (): Map<string, string> => {
+const readVendoredDigests = (vendorDirectory: string, label: string): Map<string, string> => {
   const vendoredMarkdown = fs.readFileSync(path.join(vendorDirectory, "VENDORED.md"), "utf8");
   const block = vendoredMarkdown.match(/```text\n([\s\S]*?)```/);
 
   if (!block) {
-    fail("vendor/moka/VENDORED.md holds no sha256sum block.");
+    fail(`${label}/VENDORED.md holds no sha256sum block.`);
   }
 
   const digests = new Map<string, string>();
@@ -542,7 +543,7 @@ const readVendoredDigests = (): Map<string, string> => {
     const match = line.match(/^([0-9a-f]{64})\s+(.+)$/);
 
     if (!match) {
-      fail(`vendor/moka/VENDORED.md holds an unreadable digest line: ${line}`);
+      fail(`${label}/VENDORED.md holds an unreadable digest line: ${line}`);
     }
 
     digests.set(match[2] as string, match[1] as string);
@@ -551,8 +552,9 @@ const readVendoredDigests = (): Map<string, string> => {
   return digests;
 };
 
-const verifyVendoredFiles = (): void => {
-  const digests = readVendoredDigests();
+const verifyVendoredFiles = (vendorDirectory: string): void => {
+  const label = path.relative(rootDirectory, vendorDirectory);
+  const digests = readVendoredDigests(vendorDirectory, label);
   const presentFiles = fs
     .readdirSync(vendorDirectory, { recursive: true })
     .map((entry) => entry.toString())
@@ -564,14 +566,14 @@ const verifyVendoredFiles = (): void => {
     const absolutePath = path.join(vendorDirectory, filePath);
 
     if (!fs.existsSync(absolutePath)) {
-      fail(`vendor/moka/${filePath} is listed in VENDORED.md but is missing.`);
+      fail(`${label}/${filePath} is listed in VENDORED.md but is missing.`);
     }
 
     const digest = crypto.createHash("sha256").update(fs.readFileSync(absolutePath)).digest("hex");
 
     if (digest !== expectedDigest) {
       fail(
-        `vendor/moka/${filePath} does not match its digest in VENDORED.md ` +
+        `${label}/${filePath} does not match its digest in VENDORED.md ` +
           `(expected ${expectedDigest}, got ${digest}).`,
       );
     }
@@ -579,7 +581,7 @@ const verifyVendoredFiles = (): void => {
 
   for (const filePath of presentFiles) {
     if (!digests.has(filePath)) {
-      fail(`vendor/moka/${filePath} is not listed in VENDORED.md.`);
+      fail(`${label}/${filePath} is not listed in VENDORED.md.`);
     }
   }
 };
@@ -592,7 +594,7 @@ const main = (): void => {
   );
   const plan = FIXTURE_PLANS[GO_BOARD_SIZE] ?? fail(`No fixture plan for board size ${GO_BOARD_SIZE}.`);
 
-  verifyVendoredFiles();
+  vendorDirectories.forEach(verifyVendoredFiles);
   process.stdout.write("Vendored files match their digests.\n");
 
   const model = readModel(modelsDirectory, modelId);
@@ -600,7 +602,7 @@ const main = (): void => {
 
   const runtimes = createRuntimes(model);
 
-  if (model.id === TRAINED_MODEL_ID) {
+  if (model.id === JOURNAL_PROBE_MODEL_ID) {
     playJournalProbe(runtimes, { positions: [], games: [] });
   }
 
@@ -616,7 +618,7 @@ const main = (): void => {
     const health = runtimes.health.counter.toJSON();
     runtimes.health.counter = null;
 
-    if (model.id !== TRAINED_MODEL_ID) {
+    if (!TRAINED_MODEL_IDS.has(model.id)) {
       try {
         assertHealthy(model.id, health);
       } catch (error) {

@@ -121,10 +121,12 @@ coup. `match/games.ts` joue les parties : chaque ouverture de 4 coups est tirée
 de la politique du réseau, puis jouée deux fois en échangeant les couleurs.
 
 - `pnpm match` lance le match en Node, sur plusieurs threads
-  (`--first`, `--second`, `--games`, `--time`, `--max-visits`, `--batch`,
-  `--parallel`). Les joueurs sont `zig-search`, `zig-puct`, `moka-puct`,
-  `zig-policy` et `moka-policy` (`policy` : le coup le mieux noté, sans
-  recherche). Le résultat va dans `bench/results/match-*.json`.
+  (`--first`, `--second`, `--first-model`, `--second-model`, `--games`,
+  `--time`, `--max-visits`, `--batch`, `--parallel`). Les joueurs sont
+  `zig-search`, `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
+  (`policy` : le coup le mieux noté, sans recherche). Chaque joueur prend son
+  modèle 9×9 dans `zig-out/` (`moka-9` par défaut, ou `moka-9-v2`). Le
+  résultat va dans `bench/results/match-*.json`.
 - `demo/match.html`, servie par `pnpm demo`, lance le même match dans le
   navigateur : une partie par Web Worker, un petit goban par partie, et les
   statistiques mises à jour à chaque coup et à chaque résultat.
@@ -160,6 +162,25 @@ pilote. Pour un même nombre de visites, il visite exactement comme
 
 Évaluer plusieurs feuilles par appel (`--batch`) ne fait gagner aucune visite :
 le réseau traite les positions d'un lot l'une après l'autre.
+
+### Moka v2
+
+`moka-9-v2` est le modèle de la PR
+[millionco/moka#3](https://github.com/millionco/moka/pull/3), non fusionnée,
+copié dans `vendor/moka-v2/` : tronc de 48 canaux, 16 blocs, environ 3 fois
+le calcul de v1. Il passe les mêmes tests de parité que `moka-9`, mais
+`dist/` reste en v1. Avec des tuiles de 3 positions × 12 sorties dans les
+noyaux, une inférence via le Worker passe de 0,815 à 0,660 ms dans Chromium
+(Moka : 15,0 ms). Matchs de 200 parties à 100 ms par coup :
+
+| Match | Score du premier [IC 95 %] | Elo [IC 95 %] |
+|---|---|---|
+| `zig-search` v2 contre `zig-search` v1 | 81,0 % [75,6 ; 86,4] | +252 [+196 ; +322] |
+| `zig-search` v1 contre `moka-puct` v2 | 68,3 % [61,8 ; 74,7] | +133 [+84 ; +188] |
+| `zig-search` v2 contre `moka-puct` v2 | 92,3 % [88,5 ; 96,0] | +430 [+355 ; +550] |
+| `moka-puct` v2 contre `moka-puct` v1 | 65,5 % [58,9 ; 72,1] | +111 [+63 ; +165] |
+
+Le détail est dans [`docs/designs/moka-v2.md`](docs/designs/moka-v2.md).
 
 ### Vidéo
 
@@ -326,6 +347,7 @@ ordinateur ; les autres navigateurs et le mobile ne sont pas vérifiés.
 
 Ce projet réutilise le modèle, le client et le code de référence de
 [Moka](https://github.com/millionco/moka), publié par Million Software, Inc.
-sous licence MIT. Une copie en lecture seule se trouve dans `vendor/moka/` ;
+sous licence MIT. Une copie en lecture seule se trouve dans `vendor/moka/`, et
+le modèle Moka v2 dans `vendor/moka-v2/` ;
 voir [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Ce projet est
 lui-même sous licence MIT ([`LICENSE`](LICENSE)).

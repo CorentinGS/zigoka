@@ -31,6 +31,8 @@ type Engines = Record<EngineName, Evaluate> & { search: SearchInWasm };
 type MatchConfig = {
   first: PlayerKind;
   second: PlayerKind;
+  firstModel?: string;
+  secondModel?: string;
   games: number;
   timeMs: number;
   maxVisits?: number;
