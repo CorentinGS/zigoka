@@ -46,8 +46,8 @@ peu près le carré de la surface : à 19×19, les seuls coups légaux ajoutent
 
 ## Non-Goals
 
-*   Réutiliser l'arbre d'un coup à l'autre, ou changer l'algorithme : la
-    parité avec `match/search.ts` passe d'abord.
+*   Changer l'algorithme : la parité avec `match/search.ts` passe d'abord.
+    La réutilisation de l'arbre, ajoutée ensuite, a sa propre parité.
 *   Paralléliser la recherche sur plusieurs threads.
 *   Publier `search.wasm` dans `dist/` : il sert la démo et les matchs.
 
@@ -57,7 +57,8 @@ peu près le carré de la surface : à 19×19, les seuls coups légaux ajoutent
 JS (js/search-engine.ts)                      search.wasm
   writePosition(state)  ── position_ptr ──▶   Position (plateau, ko, compteurs,
                                                          deux derniers coups)
-  search_start()        ──────────────────▶   racine : règles, entrées, réseau
+  search_start(reuse)   ──────────────────▶   racine : sous-arbre gardé, ou règles,
+                                              entrées, réseau
   boucle jusqu'à l'échéance :
     search_run(cible, lot) ───────────────▶   sélection PUCT, règles, entrées,
                                               network.forward, expansion, remontée
@@ -141,6 +142,45 @@ visite borné par celui de l'évaluation de la racine : sinon, une tranche de
 visites terminales fait viser trop de visites, et le coup déborde de son temps
 (jusqu'à 795 ms pour 100 ms avant cette borne).
 
+## Réutilisation de l'arbre
+
+`search_start(reuse)` peut garder une partie de l'arbre de la recherche
+précédente. Le moteur cherche, à 2 coups au plus de l'ancienne racine (son
+coup, puis la réponse), le nœud dont la position est exactement la nouvelle :
+plateau, ko, compteurs et deux derniers coups. S'il le trouve, il garde son
+sous-arbre avec ses visites et n'évalue pas la racine ; sinon il repart de
+zéro.
+
+Le sous-arbre est ramené au début des tableaux, sans allocation. Un enfant
+est toujours créé après son parent, et les nœuds sont étendus dans leur ordre
+de création ; nœuds et plages d'arêtes descendent donc tous vers des indices
+plus petits, et un seul passage croissant les déplace sur place. Une table de
+renumérotation de `NODES` entiers suffit (32 Ko ; `search.wasm` de
+`moka-9-v2` passe à 346 pages).
+
+Une racine gardée n'appelle pas le réseau. `js/search-engine.ts` borne donc
+le coût d'une visite par le temps de la dernière racine évaluée
+(`search_reused` dit si la racine a été gardée).
+
+`match/search.ts` fait la même réutilisation quand on lui passe un
+`SearchTree`. Le joueur `zig-reuse` est `zig-search` avec réutilisation ; dans
+les matchs, chaque joueur a sa propre instance de `search.wasm`, pour
+qu'aucun ne reprenne l'arbre de l'autre.
+
+Match en Node, 200 parties, 4 en parallèle, `zig-reuse` contre `zig-search`,
+même modèle. Les visites comptent celles qui sont reprises ; médianes sur les
+coups 0 à 59 :
+
+| Modèle, temps par coup | Résultat de `zig-reuse` | Score [IC 95 %] | Elo [IC 95 %] | Visites médianes |
+|---|---|---|---|---|
+| `moka-9-v2`, 100 ms | 103 V, 63 D, 34 N | 60,0 % [53,2 ; 66,8] | +70 [+22 ; +121] | 193 contre 138 |
+| `moka-9`, 100 ms | 106 V, 65 D, 29 N | 60,3 % [53,5 ; 67,0] | +72 [+24 ; +123] | 550 contre 369 |
+| `moka-9-v2`, 10 ms | 97 V, 73 D, 30 N | 56,0 % [49,1 ; 62,9] | +42 [−6 ; +92] | 19 contre 13 |
+
+À 100 ms, la racine part avec environ 40 % de visites en plus, et le gain est
+significatif sur les deux modèles. À 10 ms, l'arbre gardé est trop petit
+pour que l'écart soit significatif sur 200 parties.
+
 ## Tests
 
 *   `tests/search-parity.test.ts`, pour `moka-9` et `synthetic-19` :
@@ -154,6 +194,11 @@ visites terminales fait viser trop de visites, et le coup déborde de son temps
         `match/search.ts` avec le réseau Zig ;
     *   lots de 2, 4 et 8 : le nombre de visites est respecté et le coup est
         légal ;
+    *   réutilisation : sur une partie, en cherchant à chaque coup puis un
+        coup sur deux, les visites reprises, les visites de chaque enfant de
+        la racine et le coup choisi sont ceux de `match/search.ts` avec un
+        `SearchTree` ; reprendre la même position puis continuer donne le même
+        arbre qu'une recherche d'une traite ;
     *   une partie finie est refusée, et un arbre plein arrête la recherche.
 *   `tests/wasm-checks.test.mjs` contrôle aussi `search.wasm` : SIMD, mémoire
     fixe, pas de `memory.grow`, exports exacts, aucun import.
@@ -166,7 +211,5 @@ visites terminales fait viser trop de visites, et le coup déborde de son temps
     temps. En WASM, cela demande des threads sur une mémoire partagée, donc
     `SharedArrayBuffer` et une page isolée (COOP/COEP), ou un Worker par
     moteur avec une copie des entrées et des sorties à chaque lot.
-*   **Réutiliser l'arbre** du coup précédent : le sous-arbre du coup joué
-    garde ses visites.
 *   **Un vrai réseau 19×19.** Les règles et la recherche sont prêtes ; seul
     le modèle manque.

@@ -21,6 +21,7 @@ const DEFAULT_PARALLEL = 4;
 const BATCH = 1;
 
 const PLAYER_LABELS: Record<PlayerKind, string> = {
+  "zig-reuse": "Zig + search in WASM, tree reuse",
   "zig-search": "Zig + search in WASM",
   "zig-puct": "Zig + search",
   "moka-puct": "Moka + search",
@@ -407,7 +408,7 @@ const applyQuery = () => {
   const first = parameters.get("first");
   const second = parameters.get("second");
 
-  fillPlayerSelect(firstSelect, isPlayerKind(first) ? first : "zig-search");
+  fillPlayerSelect(firstSelect, isPlayerKind(first) ? first : "zig-reuse");
   fillPlayerSelect(secondSelect, isPlayerKind(second) ? second : "moka-puct");
   parallelInput.value = String(Math.min(DEFAULT_PARALLEL, navigator.hardwareConcurrency || 1));
 

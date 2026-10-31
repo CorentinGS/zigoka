@@ -123,7 +123,7 @@ de la politique du réseau, puis jouée deux fois en échangeant les couleurs.
 - `pnpm match` lance le match en Node, sur plusieurs threads
   (`--first`, `--second`, `--first-model`, `--second-model`, `--games`,
   `--time`, `--max-visits`, `--batch`, `--parallel`). Les joueurs sont
-  `zig-search`, `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
+  `zig-reuse`, `zig-search`, `zig-puct`, `moka-puct`, `zig-policy` et `moka-policy`
   (`policy` : le coup le mieux noté, sans recherche). Chaque joueur prend son
   modèle 9×9 dans `zig-out/` (`moka-9` par défaut, ou `moka-9-v2`). Le
   résultat va dans `bench/results/match-*.json`.
@@ -162,6 +162,11 @@ pilote. Pour un même nombre de visites, il visite exactement comme
 
 Évaluer plusieurs feuilles par appel (`--batch`) ne fait gagner aucune visite :
 le réseau traite les positions d'un lot l'une après l'autre.
+
+`zig-reuse` garde en plus, d'un coup à l'autre, le sous-arbre de la nouvelle
+position. Contre `zig-search`, 200 parties à 100 ms par coup : 60,0 %
+[53,2 ; 66,8], Elo +70 [+22 ; +121] avec `moka-9-v2`, et 60,3 %
+[53,5 ; 67,0], Elo +72 [+24 ; +123] avec `moka-9`.
 
 ### Moka v2
 

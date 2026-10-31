@@ -225,6 +225,45 @@ for (const model of MODELS) {
     }
   });
 
+  test(`${model.id}: the WASM search reuses its tree like match/search.ts`, async () => {
+    const rules = await model.loadRules();
+    const { searchEngine, inferEngine } = await loadEngines(model.id);
+    const evaluate = (features: Float32Array) => inferEngine.infer(features);
+    const policy = (state: GoGameState) => evaluate(rules.encodeStudentFeatures(state)).policyLogits;
+    const [game] = collectGames(rules, 1, 6, policy);
+    const states = game.slice(0, -1);
+    let reusedSearches = 0;
+
+    for (const stride of [1, 2]) {
+      const tree = rules.createSearchTree();
+
+      for (let index = 0; index < Math.min(states.length, 2 * model.searchPositions); index += stride) {
+        const state = states[index];
+        const label = `stride ${stride}, move ${state.moveCount}`;
+        const limits = { timeMs: Infinity, maxVisits: model.searchVisits };
+        const expected = rules.search(state, evaluate, limits, tree);
+        const actual = searchEngine.search(state, { ...limits, reuse: true });
+
+        assert.equal(actual.reused, expected.reused, label);
+        assert.equal(actual.visits, expected.visits, label);
+        assert.deepEqual(searchEngine.rootVisits(), expected.children, label);
+        assert.equal(actual.move, expected.move, label);
+        reusedSearches += expected.reused > 0 ? 1 : 0;
+      }
+    }
+
+    const state = states[0];
+    const once = searchEngine.search(state, { timeMs: Infinity, maxVisits: model.searchVisits });
+    const again = searchEngine.search(state, { timeMs: Infinity, maxVisits: 2 * model.searchVisits, reuse: true });
+    const children = searchEngine.rootVisits();
+    const fresh = searchEngine.search(state, { timeMs: Infinity, maxVisits: 2 * model.searchVisits });
+
+    assert.equal(again.reused, once.visits);
+    assert.deepEqual(children, searchEngine.rootVisits());
+    assert.equal(again.move, fresh.move);
+    assert.ok(reusedSearches > 0);
+  });
+
   test(`${model.id}: batched search keeps the visit count and plays legal moves`, async () => {
     const rules = await model.loadRules();
     const { searchEngine } = await loadEngines(model.id);
@@ -251,7 +290,7 @@ for (const model of MODELS) {
     const finished = rules.playMove(rules.playMove(rules.createGameState(), pass)!, pass)!;
 
     writePosition(searchEngine.exports, finished);
-    assert.equal(searchEngine.exports.search_start(), STATUS_GAME_OVER);
+    assert.equal(searchEngine.exports.search_start(0), STATUS_GAME_OVER);
   });
 }
 

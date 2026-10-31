@@ -7,4 +7,4 @@ export {
   isGameOver,
   playMove,
 } from "../vendor/moka/src/game.ts";
-export { search } from "../match/search.ts";
+export { createSearchTree, search } from "../match/search.ts";

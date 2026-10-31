@@ -30,7 +30,8 @@ interface SearchExports extends InferExports {
   rules_is_game_over: () => number;
   rules_area_score: () => number;
   rules_dead_stones: () => number;
-  search_start: () => number;
+  search_start: (reuse: number) => number;
+  search_reused: () => number;
   search_run: (targetVisits: number, batch: number) => number;
   search_visits: () => number;
   search_nodes: () => number;
@@ -41,9 +42,9 @@ interface SearchExports extends InferExports {
   search_child_visits: (index: number) => number;
 }
 
-type SearchOptions = { timeMs: number; maxVisits?: number; batch?: number };
+type SearchOptions = { timeMs: number; maxVisits?: number; batch?: number; reuse?: boolean };
 
-type SearchOutcome = { move: number; visits: number; poolFull: boolean };
+type SearchOutcome = { move: number; visits: number; reused: number; poolFull: boolean };
 
 interface SearchEngine {
   search: (state: GoGameState, options: SearchOptions) => SearchOutcome;
@@ -96,17 +97,25 @@ const createSearchEngine = async (
   weights: ArrayBuffer,
 ): Promise<SearchEngine> => {
   const exports = await instantiateWithWeights<SearchExports>(module, weights);
+  let rootMs = 0;
 
-  const search = (state: GoGameState, { timeMs, maxVisits = Infinity, batch = 1 }: SearchOptions) => {
+  const search = (
+    state: GoGameState,
+    { timeMs, maxVisits = Infinity, batch = 1, reuse = false }: SearchOptions,
+  ) => {
     const startedAt = performance.now();
     const deadline = startedAt + timeMs;
 
     writePosition(exports, state);
-    checkStatus(exports.search_start());
+    checkStatus(exports.search_start(reuse ? 1 : 0));
 
-    const rootMs = performance.now() - startedAt;
+    const reused = exports.search_visits();
 
-    let visits = exports.search_visits();
+    if (exports.search_reused() === 0) {
+      rootMs = performance.now() - startedAt;
+    }
+
+    let visits = reused;
     let chunk = 1;
     let poolFull = false;
 
@@ -135,7 +144,7 @@ const createSearchEngine = async (
       chunk = Math.max(1, Math.floor((deadline - finishedAt) / msPerVisit / 2));
     }
 
-    return { move: exports.search_best_move(), visits, poolFull };
+    return { move: exports.search_best_move(), visits, reused, poolFull };
   };
 
   const rootVisits = () =>

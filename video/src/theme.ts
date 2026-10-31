@@ -15,6 +15,7 @@ const theme = {
 const ENGINE_COLORS = { zig: theme.zig, moka: theme.moka } as const;
 
 const PLAYER_NAMES = {
+  "zig-reuse": "Zig + search in WASM, tree reuse",
   "zig-search": "Zig + search in WASM",
   "zig-puct": "Zig + search",
   "moka-puct": "Moka + search",

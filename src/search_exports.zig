@@ -72,9 +72,14 @@ export fn rules_dead_stones() u32 {
     return count;
 }
 
-export fn search_start() Status {
+/// Starts a search from the position; `reuse` != 0 keeps the matching subtree of the last search.
+export fn search_start(reuse: u32) Status {
     if (!weights.loaded) return .weights_not_loaded;
-    return tree.start(&position);
+    return tree.start(&position, reuse != 0);
+}
+
+export fn search_reused() u32 {
+    return @intFromBool(tree.startReused());
 }
 
 export fn search_run(target_visits: u32, batch: u32) Status {

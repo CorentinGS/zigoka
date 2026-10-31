@@ -12,7 +12,14 @@ import {
 import { createMulberry32 } from "../oracle/mulberry32.ts";
 import { getCandidateMoves, search, type Evaluate } from "./search.ts";
 
-const PLAYER_KINDS = ["zig-search", "zig-puct", "moka-puct", "zig-policy", "moka-policy"] as const;
+const PLAYER_KINDS = [
+  "zig-reuse",
+  "zig-search",
+  "zig-puct",
+  "moka-puct",
+  "zig-policy",
+  "moka-policy",
+] as const;
 const OPENING_ATTEMPT_LIMIT = 100;
 const Z_95 = 1.96;
 const ELO_SCALE = 400;
@@ -23,7 +30,7 @@ type EngineName = "zig" | "moka";
 
 type SearchInWasm = (
   state: GoGameState,
-  options: { timeMs: number; maxVisits?: number; batch: number },
+  options: { timeMs: number; maxVisits?: number; batch: number; reuse: boolean },
 ) => { move: number; visits: number };
 
 type Engines = Record<EngineName, Evaluate> & { search: SearchInWasm };
@@ -69,16 +76,22 @@ type MatchSummary = ReturnType<typeof summarize>;
 const isPlayerKind = (kind: unknown): kind is PlayerKind =>
   PLAYER_KINDS.includes(kind as PlayerKind);
 
+/** Players that keep state in `search.wasm`: two of them need two engine instances. */
+const usesSearchWasm = (kind: PlayerKind) => kind === "zig-search" || kind === "zig-reuse";
+
 const createPlayer = (kind: PlayerKind, engines: Engines, config: MatchConfig): Player => {
-  const [engine, mode] = kind.split("-") as [EngineName, "search" | "puct" | "policy"];
+  const [engine, mode] = kind.split("-") as [EngineName, "reuse" | "search" | "puct" | "policy"];
   const evaluate = engines[engine];
 
-  if (mode === "search") {
-    return {
-      kind,
-      play: (state) =>
-        engines.search(state, { timeMs: config.timeMs, maxVisits: config.maxVisits, batch: config.batch }),
+  if (mode === "search" || mode === "reuse") {
+    const options = {
+      timeMs: config.timeMs,
+      maxVisits: config.maxVisits,
+      batch: config.batch,
+      reuse: mode === "reuse",
     };
+
+    return { kind, play: (state) => engines.search(state, options) };
   }
 
   if (mode === "puct") {
@@ -278,6 +291,7 @@ export {
   playGame,
   PLAYER_KINDS,
   summarize,
+  usesSearchWasm,
 };
 export type {
   EngineName,

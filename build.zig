@@ -27,7 +27,7 @@ const MODELS = [_]Model{
         .id = "moka-9-v2",
         .directory = "vendor/moka-v2/model",
         .memory_pages = 27,
-        .search = .{ .nodes = 8192, .edges = 524_288, .memory_pages = 345 },
+        .search = .{ .nodes = 8192, .edges = 524_288, .memory_pages = 346 },
     },
     .{
         .id = "synthetic-19",

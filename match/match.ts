@@ -151,7 +151,7 @@ const runWorker = async () => {
   const firstModel = config.firstModel ?? DEFAULT_MODEL_ID;
   const secondModel = config.secondModel ?? DEFAULT_MODEL_ID;
   const firstEngines = await loadEngines(firstModel);
-  const secondEngines = secondModel === firstModel ? firstEngines : await loadEngines(secondModel);
+  const secondEngines = await loadEngines(secondModel);
   const first = createPlayer(config.first, firstEngines, config);
   const second = createPlayer(config.second, secondEngines, config);
 

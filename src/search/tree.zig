@@ -21,6 +21,7 @@ const EXPLORATION: f64 = 1.5;
 const FIRST_PLAY_REDUCTION: f64 = 0.2;
 const NONE: u32 = std.math.maxInt(u32);
 const MAX_DEPTH: u32 = R.MAX_MOVE_COUNT;
+const REUSE_DEPTH: u32 = 2;
 
 pub const Status = enum(u32) {
     ok = 0,
@@ -55,6 +56,8 @@ var edge_in_flight: [EDGES]u32 = undefined;
 var edge_value_sum: [EDGES]f64 = undefined;
 var edge_child: [EDGES]u32 = undefined;
 
+var remap: [NODES]u32 = undefined;
+
 var leaves: [buffers.MAX_BATCH]Leaf = undefined;
 var leaf_analyses: [buffers.MAX_BATCH]R.Analysis = undefined;
 
@@ -62,13 +65,14 @@ var nodes_used: u32 = 0;
 var edges_used: u32 = 0;
 var edges_reserved: u32 = 0;
 var started = false;
+var reused = false;
 
 pub const STATIC_BYTES: u64 = @sizeOf(@TypeOf(positions)) + @sizeOf(@TypeOf(node_kind)) +
     @sizeOf(@TypeOf(node_value)) + @sizeOf(@TypeOf(node_visits)) + @sizeOf(@TypeOf(node_in_flight)) +
     @sizeOf(@TypeOf(edge_start)) + @sizeOf(@TypeOf(edge_count)) + @sizeOf(@TypeOf(edge_move)) +
     @sizeOf(@TypeOf(edge_prior)) + @sizeOf(@TypeOf(edge_visits)) + @sizeOf(@TypeOf(edge_in_flight)) +
-    @sizeOf(@TypeOf(edge_value_sum)) + @sizeOf(@TypeOf(edge_child)) + @sizeOf(@TypeOf(leaves)) +
-    @sizeOf(@TypeOf(leaf_analyses));
+    @sizeOf(@TypeOf(edge_value_sum)) + @sizeOf(@TypeOf(edge_child)) + @sizeOf(@TypeOf(remap)) +
+    @sizeOf(@TypeOf(leaves)) + @sizeOf(@TypeOf(leaf_analyses));
 
 fn features(slot: usize) *[R.FEATURES]f32 {
     return buffers.input[slot * buffers.INPUT_STRIDE ..][0..R.FEATURES];
@@ -234,13 +238,93 @@ fn evaluate(count: usize) Status {
     return .ok;
 }
 
-/// Clears the tree and evaluates `root`.
-pub fn start(root: *const R.Position) Status {
+fn isSamePosition(left: *const R.Position, right: *const R.Position) bool {
+    return left.ko == right.ko and left.move_count == right.move_count and
+        left.last_move == right.last_move and left.previous_move == right.previous_move and
+        left.pass_count == right.pass_count and left.next_color == right.next_color and
+        std.mem.eql(i8, &left.board, &right.board);
+}
+
+/// Finds the node of `position` within `REUSE_DEPTH` moves of `node`.
+fn findNode(node: u32, position: *const R.Position, depth: u32) ?u32 {
+    if (isSamePosition(&positions[node], position)) return node;
+    if (depth == REUSE_DEPTH or node_kind[node] != .expanded) return null;
+    const first = edge_start[node];
+    for (first..first + edge_count[node]) |edge| {
+        if (edge_child[edge] == NONE) continue;
+        if (findNode(edge_child[edge], position, depth + 1)) |found| return found;
+    }
+    return null;
+}
+
+/// Keeps only the subtree of `root`, moved to the front of the pools with `root` as node 0.
+/// A child is always allocated after its parent and expanded in allocation order, so nodes and
+/// edge ranges both move to lower indices and one ascending pass can move them in place.
+fn keepSubtree(root: u32) void {
+    @memset(remap[0..nodes_used], NONE);
+    remap[root] = 0;
+    var kept: u32 = 0;
+    for (root..nodes_used) |node| {
+        if (remap[node] == NONE) continue;
+        remap[node] = kept;
+        kept += 1;
+        if (node_kind[node] != .expanded) continue;
+        const first = edge_start[node];
+        for (first..first + edge_count[node]) |edge| {
+            if (edge_child[edge] != NONE) remap[edge_child[edge]] = 0;
+        }
+    }
+    var edges_kept: u32 = 0;
+    for (root..nodes_used) |node| {
+        const target = remap[node];
+        if (target == NONE) continue;
+        positions[target] = positions[node];
+        node_kind[target] = node_kind[node];
+        node_value[target] = node_value[node];
+        node_visits[target] = node_visits[node];
+        node_in_flight[target] = 0;
+        edge_count[target] = edge_count[node];
+        if (node_kind[node] != .expanded) continue;
+        const first = edge_start[node];
+        std.debug.assert(edges_kept <= first);
+        edge_start[target] = edges_kept;
+        for (first..first + edge_count[node]) |edge| {
+            edge_move[edges_kept] = edge_move[edge];
+            edge_prior[edges_kept] = edge_prior[edge];
+            edge_visits[edges_kept] = edge_visits[edge];
+            edge_in_flight[edges_kept] = 0;
+            edge_value_sum[edges_kept] = edge_value_sum[edge];
+            edge_child[edges_kept] = if (edge_child[edge] == NONE) NONE else remap[edge_child[edge]];
+            edges_kept += 1;
+        }
+    }
+    nodes_used = kept;
+    edges_used = edges_kept;
+    edges_reserved = 0;
+}
+
+/// Starts a search from `root`. With `reuse`, keeps the subtree of the last search whose root is
+/// `root`, if `root` is within `REUSE_DEPTH` moves of the last root; otherwise clears the tree and
+/// evaluates `root`.
+pub fn start(root: *const R.Position, reuse: bool) Status {
+    reused = false;
+    if (R.isGameOver(root)) {
+        started = false;
+        return .game_over;
+    }
+    if (reuse and started) {
+        if (findNode(0, root, 0)) |node| {
+            if (node_kind[node] == .expanded) {
+                keepSubtree(node);
+                reused = true;
+                return .ok;
+            }
+        }
+    }
     started = false;
     nodes_used = 0;
     edges_used = 0;
     edges_reserved = 0;
-    if (R.isGameOver(root)) return .game_over;
     const node = allocateNode(root.*);
     prepareLeaf(0, node);
     if (!network.forward(0)) return .non_finite_output;
@@ -271,6 +355,11 @@ pub fn run(target: u32, batch: u32) Status {
         if (outcome == .pool_full) return .pool_full;
     }
     return .ok;
+}
+
+/// Whether the last `start` kept a subtree instead of evaluating the root.
+pub fn startReused() bool {
+    return reused;
 }
 
 pub fn rootVisits() u32 {

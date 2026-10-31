@@ -31,7 +31,17 @@ type SearchNode = {
 
 type SearchLimits = { timeMs: number; maxVisits?: number };
 
-type SearchResult = { move: number; visits: number; children: { move: number; visits: number }[] };
+type SearchResult = {
+  move: number;
+  visits: number;
+  reused: number;
+  children: { move: number; visits: number }[];
+};
+
+/** Keeps the tree of the last search, so that the next one can start from the matching node. */
+type SearchTree = { root: SearchNode | null };
+
+const REUSE_DEPTH = 2;
 
 const getCandidateMoves = (state: GoGameState) => {
   const legalMoves = getLegalMoves(state);
@@ -163,10 +173,49 @@ const simulate = (root: SearchNode, evaluate: Evaluate) => {
   return value;
 };
 
-const search = (state: GoGameState, evaluate: Evaluate, limits: SearchLimits): SearchResult => {
+const createSearchTree = (): SearchTree => ({ root: null });
+
+const isSamePosition = (left: GoGameState, right: GoGameState) =>
+  left.koMove === right.koMove &&
+  left.moveCount === right.moveCount &&
+  left.nextColor === right.nextColor &&
+  left.consecutivePassCount === right.consecutivePassCount &&
+  left.moveHistory.at(-1) === right.moveHistory.at(-1) &&
+  left.moveHistory.at(-2) === right.moveHistory.at(-2) &&
+  left.board.every((point, index) => point === right.board[index]);
+
+/** Finds the node of `state` within `REUSE_DEPTH` moves of `node`. */
+const findNode = (node: SearchNode, state: GoGameState, depth = 0): SearchNode | null => {
+  if (isSamePosition(node.state, state)) {
+    return node;
+  }
+
+  if (depth === REUSE_DEPTH) {
+    return null;
+  }
+
+  for (const child of node.children) {
+    const found = child === null ? null : findNode(child, state, depth + 1);
+
+    if (found !== null) {
+      return found;
+    }
+  }
+
+  return null;
+};
+
+const search = (
+  state: GoGameState,
+  evaluate: Evaluate,
+  limits: SearchLimits,
+  tree?: SearchTree,
+): SearchResult => {
   const deadline = performance.now() + limits.timeMs;
   const maxVisits = limits.maxVisits ?? Infinity;
-  const root = createNode(state, evaluate);
+  const reusedRoot = tree?.root ? findNode(tree.root, state) : null;
+  const root = reusedRoot ?? createNode(state, evaluate);
+  const reused = root.visitCount;
 
   if (root.moves.length === 0) {
     throw new Error("The search started from a finished game.");
@@ -174,6 +223,10 @@ const search = (state: GoGameState, evaluate: Evaluate, limits: SearchLimits): S
 
   while (root.visitCount < maxVisits && performance.now() < deadline) {
     simulate(root, evaluate);
+  }
+
+  if (tree) {
+    tree.root = root;
   }
 
   let best = 0;
@@ -190,9 +243,10 @@ const search = (state: GoGameState, evaluate: Evaluate, limits: SearchLimits): S
   return {
     move: root.moves[best],
     visits: root.visitCount,
+    reused,
     children: root.moves.map((move, index) => ({ move, visits: root.childVisits[index] })),
   };
 };
 
-export { getCandidateMoves, search };
-export type { Evaluate, SearchLimits, SearchResult };
+export { createSearchTree, getCandidateMoves, search };
+export type { Evaluate, SearchLimits, SearchResult, SearchTree };

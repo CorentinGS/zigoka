@@ -5,6 +5,7 @@ import {
   createOpenings,
   createPlayer,
   playGame,
+  usesSearchWasm,
   type Engines,
 } from "../match/games.ts";
 import type { MatchWorkerRequest, MatchWorkerResponse } from "./match-protocol.ts";
@@ -61,10 +62,16 @@ const handleRequest = async (request: MatchWorkerRequest) => {
   if (request.type === "initialize") {
     const startedAt = performance.now();
 
+    const { first, second } = request.config;
+
     engines = await loadEngines();
     players = {
-      first: createPlayer(request.config.first, engines, request.config),
-      second: createPlayer(request.config.second, engines, request.config),
+      first: createPlayer(first, engines, request.config),
+      second: createPlayer(
+        second,
+        usesSearchWasm(first) && usesSearchWasm(second) ? await loadEngines() : engines,
+        request.config,
+      ),
     };
     post({ type: "ready", durationMs: performance.now() - startedAt });
 
