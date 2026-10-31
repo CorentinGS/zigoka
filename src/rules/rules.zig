@@ -212,7 +212,7 @@ pub fn Rules(comptime N: u16) type {
         }
 
         fn setFeature(features: *[FEATURES]f32, point: usize, plane: Plane, value: f32) void {
-            features[point * INPUT_PLANES + @intFromEnum(plane)] = value;
+            features[point * INPUT_PLANES + @backingInt(plane)] = value;
         }
 
         /// Moka's encodeStudentFeatures, written as [point][plane].
