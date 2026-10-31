@@ -4,6 +4,11 @@
 *   **Status:** Implemented
 *   **Date:** 2026-10-30
 
+Partiellement amendé par [`zig-search.md`](zig-search.md) (étape `search`,
+règles de référence en 19×19, PUCT) et [`moka-v2.md`](moka-v2.md)
+(`moka-9-v2`, tuiles des convolutions). Les chiffres mesurés restent ceux de
+leur date.
+
 --------------------------------------------------------------------------------
 
 ## Overview
@@ -264,8 +269,9 @@ premier design. Les jalons J0 à J5 sont définis dans le Technical Plan.
     symétries.** Ils feront l'objet du design suivant.
 *   **Les règles et l'encodage en Zig, et des règles de référence N×N.** Les
     règles de Moka avec des constantes substituées servent ici à produire des
-    entrées plausibles, rien de plus : elles ne sont pas testées en 19×19 et
-    ne sont pas une référence pour le design PUCT. Les positions de test des
+    entrées plausibles, rien de plus. Depuis, `zig-search.md` s'en sert comme
+    référence des règles Zig en 19×19 (`tests/dist/moka-rules-19.js`, bâti
+    par le même plugin que F31). Les positions de test des
     règles (bords, captures, ko, décompte) appartiennent à ce design-là.
 *   **Un vrai modèle 19×19**, des têtes indépendantes de N, ou un réseau plus
     large que 32 canaux. Le résultat de ce design ne prédit pas la vitesse
@@ -284,6 +290,7 @@ premier design. Les jalons J0 à J5 sont définis dans le Technical Plan.
     Moka modifié, et la comparaison ne porterait plus sur le runtime de Moka.
 *   **La vectorisation des couches denses.** Elle se décidera sur un vrai
     modèle 19×19, pas sur la part mesurée avec des têtes synthétiques.
+    Elle a été faite ensuite, voir « Mesures enregistrées ».
 *   **Un paquet Zig réutilisable, sans variables globales.** La réutilisation
     visée ici est un hôte JS/WASM, avec un `infer.wasm` par modèle. Les
     variables globales du moteur restent. Un paquet Zig se décidera avec
@@ -460,7 +467,8 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
     identiques bit à bit ; la dernière position d'un plateau impair passe
     par l'ancien chemin. Dans Node, 3 et 4 positions font moins bien que 2
     (probablement des registres débordés par V8), et étendre les paires
-    aux convolutions à 32 sorties ne gagne rien.
+    aux convolutions à 32 sorties ne gagne rien. Les tuiles de `moka-v2.md`
+    (`TILES` dans `src/infer/kernels.zig`) ont depuis remplacé ces paires.
 
     Deux sessions consécutives, l'une avec le changement, l'autre sans
     (fichiers `bench/results/2026-10-30T20-13-14-289Z.json` et
@@ -479,6 +487,7 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
     *   L'`infer.wasm` de `moka-9` passe de 23,5 Ko (7,5 Ko après gzip) à
         24,1 Ko (8,0 Ko), sous le plafond de 32 Kio. Les deux changements
         des têtes l'avaient déjà fait passer de 19,2 Ko (6,7 Ko) à 23,5 Ko.
+        Avec les tuiles de `moka-v2.md`, il fait 26,1 Ko (8,8 Ko).
 
 ## Open Questions
 
@@ -568,6 +577,10 @@ plateau se lit dans le manifeste de ce modèle.
 | --- | --- | --- | --- |
 | `moka-9` | `vendor/moka/model` | 13 | J1 |
 | `synthetic-19` | `models/synthetic-19` | 66 | J3 |
+| `moka-9-v2` | `vendor/moka-v2/model` | 27 | `moka-v2.md` |
+
+Chaque entrée a aussi un champ `search` (nœuds, arêtes et pages de
+`search.wasm`), ajouté par `zig-search.md` avec l'étape `zig build search`.
 
 *   Les 66 pages viennent de la règle du premier design (25 % de marge
     au-dessus des tampons et de la pile) : environ 3,4 Mo de tampons et
@@ -901,6 +914,7 @@ oracle : avant, aucun consommateur n'aurait ses données de référence. Si NX4
     visites possible par coup.
 
 Les règles de Moka à constantes substituées ne font pas partie du contrat.
+Le design PUCT (`zig-search.md`) les a ensuite prises comme référence.
 
 ## Alternatives Considered
 
@@ -1116,15 +1130,14 @@ alternatives A à Q du premier design, que ce document cite.
 ## Future Improvements
 
 *   **Têtes indépendantes de N** et un vrai modèle 19×19 (Alternative 2).
-*   **Vectoriser les couches denses**, sur ce vrai modèle, si leur part du
-    temps de Zig le justifie : accumulation f64 sur deux voies, poids
-    réordonnés en `[entrée][sortie]`, sans changer l'ordre des additions de
-    chaque sortie.
+*   ~~**Vectoriser les couches denses**~~ : fait, avec 4 voies f64
+    (`src/infer/dense.zig`) et des poids réordonnés en `[entrée][sortie]` au
+    chargement (`weights.transposeLinear`).
 *   **Une variante plus large** (96 ou 128 canaux), avec un noyau découpé par
     blocs de sorties.
 *   **Le témoin TypeScript** du premier design, pour que la comparaison porte
     sur JavaScript, et pas seulement sur le runtime de Moka.
-*   **Le design PUCT N×N**, à partir du contrat de NX8.
+*   ~~**Le design PUCT N×N**~~ : livré par [`zig-search.md`](zig-search.md).
 
 --------------------------------------------------------------------------------
 
@@ -1180,6 +1193,9 @@ qui passe `pnpm check:all`.
 *   **Type / Scope** : données de référence versionnées.
 *   **Proposed Changes** : produit pendant J0, après F1 à F3, par
     `pnpm build && pnpm oracle && node scripts/snapshot-outputs.mjs --wasm zig-out/bin --fixtures oracle/fixtures --out oracle/snapshots/moka-9.json`.
+    Depuis J1, les chemins sont `--wasm zig-out/moka-9 --fixtures
+    oracle/fixtures/moka-9` ; le script lit toujours les poids dans
+    `zig-out/models/moka-9/`.
     Schéma (les valeurs sont des exemples) :
 
     ```json
@@ -1370,7 +1386,8 @@ qui passe `pnpm check:all`.
         `FEATURE_COUNT`, `INPUT_STRIDE`, `MOVE_COUNT`, `PASS_MOVE` et
         `WEIGHTS_BYTES` (lignes 11-16) disparaissent ; le poids est lu dans
         `zig-out/models/<id>/go-model.bin` ; les coups sont lus en `u16` ;
-        `VALUE_ULP_LIMIT = 2n` et `MAX_BATCH = 8` restent ;
+        `MAX_BATCH = 8` reste, et `VALUE_ULP_LIMIT = 2n` passe dans
+        `bench/parity-rule.ts` avec la règle de F22 ;
     *   la règle de parité commune, sur chaque jeu, devient un critère (le
         test échoue au premier écart, avec la position et l'indice) ;
     *   pour `moka-9` seulement : G3 avec `oracle/tolerance.json`, et sha256
@@ -1514,9 +1531,10 @@ qui passe `pnpm check:all`.
         et `VALUE_SCALE_FACTOR` (1) ;
     *   lit `moka-9` dans `vendor/moka/model/` et refuse un tenseur que la
         recette ne classe ni comme repris ni comme généré ;
-    *   après l'écriture, charge le résultat avec `GoModelRuntime.create` de
-        Moka et lance une inférence sur un vecteur d'entrée nul ; un échec, ou
-        une sortie non finie, fait échouer le générateur ;
+    *   avant l'écriture, et aussi avec `--check`, charge le modèle produit
+        avec `GoModelRuntime.create` de Moka et lance une inférence sur un
+        vecteur d'entrée nul (`assertLoadable`) ; un échec, ou une sortie non
+        finie, fait échouer le générateur sans rien écrire ;
     *   `--check` régénère dans un dossier créé par
         `fs.mkdtempSync(path.join(os.tmpdir(), "synthetic-19-"))`. Il compare
         `go-model.json` et `go-model.bin` à ceux de `models/synthetic-19/`
@@ -1601,8 +1619,9 @@ qui passe `pnpm check:all`.
         (Technical Plan, « Jeux de positions ») ;
     *   `generate-fixtures.ts` crée un compteur neuf par jeu, branche
         `onTensor` sur l'instance `f32Accumulate`, écrit `health` dans
-        `index.json` de chaque jeu, et appelle `assertHealthy` pour
-        `synthetic-19`. Pour `moka-9`, `health` est écrit mais pas jugé.
+        `index.json` de chaque jeu, et appelle `assertHealthy` pour tout
+        modèle absent de `TRAINED_MODEL_IDS` (`moka-9`, `moka-9-v2`). Pour ces
+        deux modèles, `health` est écrit mais pas jugé.
 
 ###### F34. `./tests/oracle-health.test.ts` (Create)
 
@@ -1662,12 +1681,12 @@ qui passe `pnpm check:all`.
     *   importe lui-même `buffers.zig`, `weights.zig` et `network.zig` ;
     *   `export fn forward_trunk(count: u32) u32` contrôle les mêmes choses
         qu'`infer`, dans le même ordre (`exports.zig:51-52`) :
-        *   `@intFromEnum(Status.bad_batch_count)` si `count` n'est pas entre
+        *   `@backingInt(Status.bad_batch_count)` si `count` n'est pas entre
             1 et `MAX_BATCH` ;
-        *   puis `@intFromEnum(Status.weights_not_loaded)` si `weights.loaded`
+        *   puis `@backingInt(Status.weights_not_loaded)` si `weights.loaded`
             est faux ;
         *   sinon, appelle `network.forwardTrunk(k)` pour chaque `k` de
-            `0..count` et renvoie `@intFromEnum(Status.ok)`.
+            `0..count` et renvoie `@backingInt(Status.ok)`.
 
 ###### F39. `./build.zig` (Modify)
 
@@ -1687,6 +1706,8 @@ qui passe `pnpm check:all`.
     deviennent `build` = `zig build models wasm wasm-safe wasm-profile && pnpm build:js`,
     `test` = `zig build test && zig build models wasm wasm-safe wasm-profile && node --test "tests/*.test.mjs" "tests/*.test.ts"`
     et `bench` = `zig build models wasm wasm-profile && pnpm build:js && node bench/run.mjs`.
+    `zig-search.md` ajoute ensuite `search` à `build` et à `test`, et
+    `pnpm build:js` à `test` (voir `package.json`).
 
 ###### F41. `./tests/wasm-checks.test.mjs` (Modify)
 
@@ -1820,7 +1841,8 @@ qui passe `pnpm check:all`.
 ### Verification Plan
 
 *   **J0** : pendant J0, après F1 à F3,
-    `pnpm build && pnpm oracle && node scripts/snapshot-outputs.mjs --wasm zig-out/bin --fixtures oracle/fixtures --out oracle/snapshots/moka-9.json`,
+    `pnpm build && pnpm oracle && node scripts/snapshot-outputs.mjs --wasm zig-out/bin --fixtures oracle/fixtures --out oracle/snapshots/moka-9.json`
+    (aujourd'hui `--wasm zig-out/moka-9 --fixtures oracle/fixtures/moka-9`),
     puis `pnpm test` (F2 ne change aucun résultat).
 *   **Compilation/Build** : `pnpm gen`, `pnpm build`.
 *   **Unit Tests** : `zig build test`, puis

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -661,9 +662,12 @@ const main = (): void => {
     return;
   }
 
-  const temporaryDirectory = path.join(fixturesDirectory, ".check", model.id);
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `oracle-check-${model.id}-`));
+  const failCheck = (message: string): never => {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 
-  fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    return fail(message);
+  };
 
   for (const [setName, setFiles] of files) {
     writeFiles(path.join(temporaryDirectory, setName), setFiles);
@@ -673,7 +677,7 @@ const main = (): void => {
   const candidateSets = [...files.keys()].sort();
 
   if (referenceSets.join(",") !== candidateSets.join(",")) {
-    fail(
+    failCheck(
       `oracle/fixtures/${model.id} holds ${referenceSets.join(", ") || "nothing"}, ` +
         `expected ${candidateSets.join(", ")}. Run "pnpm oracle" before "pnpm oracle:check".`,
     );
@@ -686,7 +690,7 @@ const main = (): void => {
     );
 
     if (difference) {
-      fail(`The reference data of ${model.id} is not reproducible: ${setName}/${difference}.`);
+      failCheck(`The reference data of ${model.id} is not reproducible: ${setName}/${difference}.`);
     }
   }
 

@@ -109,7 +109,25 @@ const playerLabel = (config: CliConfig, side: "first" | "second") => {
   return `${model === DEFAULT_MODEL_ID ? kind : `${kind}@${model}`}${time}`;
 };
 
-const printSummary = (summary: MatchSummary<CliConfig>, results: CliGameResult[]) => {
+/** Games where KataGo's score and Moka's score name different winners; `undefined` when KataGo did not score. */
+type Disagreements = { count: number; games: number };
+
+type CliSummary = MatchSummary<CliConfig> & { disagreements?: Disagreements };
+
+const countDisagreements = (results: CliGameResult[]): Disagreements | undefined => {
+  const scored = results.filter((result) => result.mokaScore !== undefined);
+
+  if (scored.length === 0) {
+    return undefined;
+  }
+
+  return {
+    count: scored.filter((result) => Math.sign(result.mokaScore!) !== Math.sign(result.score)).length,
+    games: scored.length,
+  };
+};
+
+const printSummary = (summary: CliSummary) => {
   const { config } = summary;
   const first = playerLabel(config, "first");
   const second = playerLabel(config, "second");
@@ -136,14 +154,10 @@ const printSummary = (summary: MatchSummary<CliConfig>, results: CliGameResult[]
     );
   }
 
-  const scored = results.filter((result) => result.mokaScore !== undefined);
+  if (summary.disagreements) {
+    const { count, games: scored } = summary.disagreements;
 
-  if (scored.length > 0) {
-    const disagreements = scored.filter(
-      (result) => Math.sign(result.mokaScore!) !== Math.sign(result.score),
-    ).length;
-
-    console.log(`  scored by KataGo; Moka's score gives another winner in ${disagreements} / ${scored.length} games`);
+    console.log(`  scored by KataGo; Moka's score gives another winner in ${count} / ${scored} games`);
   }
 };
 
@@ -323,13 +337,15 @@ const runMain = async () => {
   results.sort((left, right) => left.index - right.index);
   timings.sort((left, right) => left.index - right.index);
 
-  const summary = summarize(config, results);
+  const summary: CliSummary = { ...summarize(config, results), disagreements: countDisagreements(results) };
+  // A player label carries its own time as `/10ms`, which must not become a directory.
+  const fileLabel = (side: "first" | "second") => playerLabel(config, side).replaceAll("/", "-");
   const outputPath = path.join(
     resultsDirectory,
-    `match-${playerLabel(config, "first")}-vs-${playerLabel(config, "second")}-${new Date().toISOString().replaceAll(":", "-")}.json`,
+    `match-${fileLabel("first")}-vs-${fileLabel("second")}-${new Date().toISOString().replaceAll(":", "-")}.json`,
   );
 
-  printSummary(summary, results);
+  printSummary(summary);
   console.log(`  wall time ${((performance.now() - startedAt) / 1000).toFixed(0)} s`);
   fs.mkdirSync(resultsDirectory, { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify({ summary, results, timings }, null, 2)}\n`);

@@ -4,6 +4,7 @@ import { createSearchEngine } from "../js/search-engine.ts";
 import {
   createOpenings,
   createPlayer,
+  getTimeMs,
   playGame,
   usesSearchWasm,
   type Engines,
@@ -66,11 +67,12 @@ const handleRequest = async (request: MatchWorkerRequest) => {
 
     engines = await loadEngines();
     players = {
-      first: createPlayer(first, engines, request.config),
+      first: createPlayer(first, engines, request.config, getTimeMs(request.config, "first")),
       second: createPlayer(
         second,
         usesSearchWasm(first) && usesSearchWasm(second) ? await loadEngines() : engines,
         request.config,
+        getTimeMs(request.config, "second"),
       ),
     };
     post({ type: "ready", durationMs: performance.now() - startedAt });

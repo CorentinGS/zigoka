@@ -57,15 +57,18 @@ un moteur plus rapide l'un contre l'autre.
     `vendor/moka/src/` servent aussi v2. `pnpm oracle` vérifie les deux
     dossiers.
 *   **Build.** `build.zig` déclare `moka-9-v2` : 27 pages pour `infer.wasm`
-    (la plus petite taille qui laisse 25 % de marge), 345 pages pour
-    `search.wasm`, avec le même arbre que `moka-9` (8 192 nœuds,
+    (la plus petite taille qui laisse 25 % de marge), 346 pages pour
+    `search.wasm` depuis la réutilisation de l'arbre, avec le même arbre que `moka-9` (8 192 nœuds,
     524 288 arêtes).
 *   **Oracle.** v2 est un modèle entraîné, comme `moka-9` : le contrôle de
     santé des modèles générés ne s'y applique pas. La sonde du journal reste
     propre à `moka-9`, puisque ses coups viennent du journal de v1.
-*   **Noyaux.** `kernels.convolve` découpe chaque convolution en tuiles de
-    P positions × L groupes de 4 sorties (`TILES` dans
-    `src/infer/kernels.zig`). Chaque vecteur de poids chargé sert les P
+*   **Noyaux.** `kernels.convolve` découpe en tuiles de P positions × L
+    groupes de 4 sorties (`TILES` dans `src/infer/kernels.zig`) chaque
+    convolution dont le nombre de sorties est multiple de 4. Une forme
+    absente de `TILES` prend une position par tuile ; une sortie qui n'est
+    pas multiple de 4, comme la convolution de valeur à 2 sorties, garde la
+    boucle d'une position à la fois. Chaque vecteur de poids chargé sert les P
     positions, et les P × L accumulateurs restent dans les registres. Chaque
     sortie s'accumule toujours dans le même ordre (biais, puis taps, puis
     canaux), donc les résultats ne changent pas d'un bit.
@@ -147,9 +150,13 @@ Limites :
     scalaire.
 *   `tests/infer-parity.test.mjs` parcourt les modèles de `zig-out/models/` :
     `moka-9-v2` passe la règle de parité sur ses 5 239 positions de
-    calibration et ses 1 318 positions de validation.
+    calibration et ses 1 318 positions de validation. La tolérance reste
+    celle de `oracle/tolerance.json`, calibrée sur `moka-9` seulement, et
+    v2 n'a ni snapshot de sorties ni constantes de layout épinglées dans
+    `src/test_root.zig`.
 *   `tests/search-parity.test.ts` couvre `moka-9-v2` : règles, visites de
-    chaque enfant de la racine, lots.
+    chaque enfant de la racine, lots, réutilisation de l'arbre, partie finie
+    refusée et arbre plein.
 *   `tests/wasm-checks.test.mjs` contrôle les quatre WASM de `moka-9-v2`.
 
 ## Future Improvements

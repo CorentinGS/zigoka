@@ -23,7 +23,7 @@ en N×N et la mesure en 19×19 sont décrits dans
     meilleur coup légal est toujours le même. Moka accumule en f64 et ce
     moteur en f32 ; les logits sont identiques bit à bit à ceux d'un Moka
     instrumenté pour accumuler en f32.
-*   **Taille** : l'`infer.wasm` de `moka-9` fait environ 24 Ko, et 8,0 Ko
+*   **Taille** : l'`infer.wasm` de `moka-9` fait environ 26 Ko, et 8,8 Ko
     après gzip.
 
 ## 19×19

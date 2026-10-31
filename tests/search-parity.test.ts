@@ -292,14 +292,14 @@ for (const model of MODELS) {
     writePosition(searchEngine.exports, finished);
     assert.equal(searchEngine.exports.search_start(0), STATUS_GAME_OVER);
   });
+
+  test(`${model.id}: the search stops when the tree is full`, async () => {
+    const rules = await model.loadRules();
+    const { searchEngine } = await loadEngines(model.id);
+    const result = searchEngine.search(rules.createGameState(), { timeMs: Infinity, maxVisits: 1_000_000 });
+
+    assert.ok(result.poolFull);
+    assert.ok(result.visits > 1000);
+    assert.ok(searchEngine.exports.search_nodes() <= searchEngine.exports.search_node_capacity());
+  });
 }
-
-test("moka-9: the search stops when the tree is full", async () => {
-  const rules = await loadRules(9);
-  const { searchEngine } = await loadEngines("moka-9");
-  const result = searchEngine.search(rules.createGameState(), { timeMs: Infinity, maxVisits: 1_000_000 });
-
-  assert.ok(result.poolFull);
-  assert.ok(result.visits > 1000);
-  assert.ok(searchEngine.exports.search_nodes() <= searchEngine.exports.search_node_capacity());
-});

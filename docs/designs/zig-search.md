@@ -49,7 +49,8 @@ peu près le carré de la surface : à 19×19, les seuls coups légaux ajoutent
 *   Changer l'algorithme : la parité avec `match/search.ts` passe d'abord.
     La réutilisation de l'arbre, ajoutée ensuite, a sa propre parité.
 *   Paralléliser la recherche sur plusieurs threads.
-*   Publier `search.wasm` dans `dist/` : il sert la démo et les matchs.
+*   Publier `search.wasm` dans `dist/` : il sert la démo et les matchs. La
+    démo charge toujours celui de `moka-9`, copié dans `demo/dist/`.
 
 ## Technical Plan
 
@@ -64,6 +65,17 @@ JS (js/search-engine.ts)                      search.wasm
                                               network.forward, expansion, remontée
   search_best_move()    ◀──────────────────   coup le plus visité
 ```
+
+Ce schéma ne montre que le chemin d'une recherche. La liste complète des
+exports de `src/search_exports.zig` est figée par
+`tests/wasm-checks.test.mjs` : ceux d'`infer.wasm`, `moves_ptr`, les règles
+(`rules_play`, `rules_legal_moves`, `rules_encode`, `rules_is_game_over`,
+`rules_area_score`, `rules_dead_stones`), et la lecture de l'arbre
+(`search_visits`, `search_nodes`, `search_node_capacity`,
+`search_child_count`, `search_child_move`, `search_child_visits`). Les
+fonctions de recherche rendent un `Status` (`src/search/tree.zig`) : `ok`,
+`weights_not_loaded`, `bad_batch_count`, `non_finite_output`, `game_over`,
+`pool_full` ou `not_started`, que `js/search-engine.ts` traduit en messages.
 
 *   **Règles** (`src/rules/rules.zig`, générique en N). Un `Position` tient le
     plateau, le ko, le nombre de coups, les passes consécutives, la couleur à
@@ -80,6 +92,12 @@ JS (js/search-engine.ts)                      search.wasm
     Les pierres mortes sortent comme un ensemble trié ; Moka les rend dans
     l'ordre de découverte, et ses appelants ne s'en servent que comme
     ensemble.
+
+    `MAX_MOVE_COUNT` et `MIN_PASS_MOVE_COUNT` ne sont définis que pour 9 et
+    19 : une autre taille ne compile pas. En 19×19, la référence est un
+    bundle de `game.ts` où `oracle/constants-19.ts` remplace les constantes
+    de Moka (`tests/moka-rules.ts`, construit par `scripts/build-js.mjs`).
+    Le compteur de passes sature à 255 des deux côtés.
 *   **Recherche** (`src/search/tree.zig`). Mêmes constantes que
     `match/search.ts` : exploration 1,5, première visite à la valeur du nœud
     moins 0,2, priors par softmax en f64 sur les coups candidats, pas de passe
@@ -90,9 +108,12 @@ JS (js/search-engine.ts)                      search.wasm
     | Modèle | Nœuds | Arêtes | Mémoire de `search.wasm` |
     |---|---|---|---|
     | `moka-9` | 8 192 | 524 288 | 332 pages (21,8 Mo) |
+    | `moka-9-v2` | 8 192 | 524 288 | 346 pages (22,7 Mo) |
     | `synthetic-19` | 4 096 | 819 200 | 580 pages (38 Mo) |
 
-    Une feuille réserve de quoi s'étendre (un nœud et `N² + 1` arêtes) avant
+    `src/search_exports.zig` refuse de compiler si ces pages laissent moins
+    de 25 % de marge au-dessus des buffers, de l'arbre et de la pile. Une
+    feuille réserve de quoi s'étendre (un nœud et `N² + 1` arêtes) avant
     d'être créée ; sans place, `search_run` rend `pool_full`.
 *   **Temps** : WASM freestanding n'a pas d'horloge. `js/search-engine.ts`
     appelle `search_run` par tranches de visites : chaque tranche vise la
@@ -101,7 +122,11 @@ JS (js/search-engine.ts)                      search.wasm
     d'appeler le réseau. Une visite en cours compte comme une défaite pour
     écarter les descentes suivantes du même chemin. Ces visites virtuelles
     vivent dans des compteurs séparés, pour qu'avec un lot de 1 la recherche
-    refasse exactement les opérations flottantes de `match/search.ts`.
+    refasse exactement les opérations flottantes de `match/search.ts`. Une
+    descente qui tombe sur une feuille déjà en attente ferme le lot, et le
+    réseau est appelé tout de suite ; une descente qui finit sur une position
+    terminale remonte sans appel au réseau. Le lot vaut 1 par défaut ;
+    `--batch` le change dans `match/match.ts`.
 
 ## Résultats
 
@@ -147,9 +172,9 @@ visites terminales fait viser trop de visites, et le coup déborde de son temps
 `search_start(reuse)` peut garder une partie de l'arbre de la recherche
 précédente. Le moteur cherche, à 2 coups au plus de l'ancienne racine (son
 coup, puis la réponse), le nœud dont la position est exactement la nouvelle :
-plateau, ko, compteurs et deux derniers coups. S'il le trouve, il garde son
-sous-arbre avec ses visites et n'évalue pas la racine ; sinon il repart de
-zéro.
+plateau, ko, compteurs et deux derniers coups. S'il le trouve et que ce nœud est déjà
+étendu, il garde son sous-arbre avec ses visites et n'évalue pas la racine ;
+sinon il repart de zéro.
 
 Le sous-arbre est ramené au début des tableaux, sans allocation. Un enfant
 est toujours créé après son parent, et les nœuds sont étendus dans leur ordre
@@ -183,7 +208,8 @@ pour que l'écart soit significatif sur 200 parties.
 
 ## Tests
 
-*   `tests/search-parity.test.ts`, pour `moka-9` et `synthetic-19` :
+*   `tests/search-parity.test.ts`, pour `moka-9`, `moka-9-v2` et
+    `synthetic-19` :
     *   règles : à chaque position de parties aléatoires et de parties tirées
         de la politique, coups légaux, entrées du réseau octet par octet, fin
         de partie, score, pierres mortes (une position sur 5 en 9×9, sur 60

@@ -41,13 +41,18 @@ normal, soit avec son réseau human SL qui imite un rang humain.
 *   **Temps par joueur.** `--first-time` et `--second-time` remplacent
     `--time` pour un joueur. `getTimeMs` dans `match/games.ts` choisit le
     temps de chaque côté, et le nom du joueur porte son temps quand il
-    diffère (`zig-reuse@moka-9-v2/10ms`).
+    diffère (`zig-reuse@moka-9-v2/10ms`). Dans le nom du fichier de
+    résultats, le `/` devient `-`. Le match du navigateur passe aussi par
+    `getTimeMs`, mais sa page n'a qu'un temps.
 *   **Joueurs asynchrones.** Un joueur peut rendre une promesse de coup, et
     `playGame` attend chaque coup. Les joueurs du navigateur restent
     synchrones.
 *   **Client GTP.** `match/katago.ts` lance `katago gtp` et lui passe les
     règles de Moka par `-override-config` : ko simple, score par zone, pas
-    de taxe, suicide interdit, pas de bouton, komi 7 et plateau 9×9 par GTP.
+    de taxe, suicide interdit, pas de bouton, pas de bonus de handicap
+    (`whiteHandicapBonus=0`), komi 7 et plateau 9×9 par GTP. Les journaux de
+    KataGo vont dans le dossier temporaire (`logDir`). L'abandon est coupé
+    dans les deux configs ; un `resign` arrête donc le match sur une erreur.
     Avant chaque `genmove`, il rejoue sur le plateau de KataGo les coups qui
     manquent, ou repart d'un plateau vide si l'historique diverge. Les
     coordonnées GTP sautent la lettre I et comptent les lignes depuis le bas.
@@ -55,17 +60,24 @@ normal, soit avec son réseau human SL qui imite un rang humain.
     par coup : pas d'abandon, pas de réflexion pendant le tour adverse, pas
     de recherche réduite après une passe ou quand KataGo gagne.
     `match/katago-human.cfg` reprend `gtp_human5k_example.cfg` de KataGo sans
-    délai ni abandon : le coup vient de la politique human SL brute, et
-    16 visites du réseau normal décident seulement quand passer.
+    délai ni abandon : le coup vient de la politique human SL brute, et les
+    visites du réseau normal décident seulement quand passer. Dans les deux
+    cas, `maxVisits` vient de `--katago-visits`, passé par `-override-config`,
+    qui l'emporte sur la valeur des configs.
 *   **Arbitrage.** Quand KataGo joue, le banc demande `final_score` en fin de
     partie et en fait le résultat. Le score de Moka reste dans `mokaScore`,
     et le résumé compte les parties où les deux arbitres désignent un vainqueur
-    différent. Sans cela, Zig peut gagner sur une erreur du score de Moka (voir
+    différent (`summary.disagreements`, `{ count, games }`). Sans cela, Zig peut gagner sur une erreur du score de Moka (voir
     plus bas).
 *   **Lancement.** `--first katago` ou `--second katago`, avec
-    `--katago-binary`, `--katago-model`, `--katago-visits` (1 par défaut),
-    et pour l'imitation humaine `--katago-human-model` et `--katago-profile`
-    (`rank_20k` à `rank_9d`). Chaque worker lance son propre processus KataGo.
+    `--katago-binary`, `--katago-model`, `--katago-visits` (1 par défaut,
+    16 avec `--katago-profile`), et pour l'imitation humaine
+    `--katago-human-model` et `--katago-profile` (`rank_20k` à `rank_9d`).
+    Les chemins prennent par défaut `KATAGO_BINARY`, `KATAGO_MODEL` et
+    `KATAGO_HUMAN_MODEL`. Le profil est passé tel quel à KataGo, sans
+    contrôle ; un réseau human SL sans profil n'est pas utilisé. Chaque
+    worker lance son propre processus KataGo. Le résumé nomme le joueur
+    `katago-<visites>v` ou `katago-<profil>`.
 
 ## Résultats
 
@@ -86,6 +98,10 @@ ligne :
 | 5 ms | 72,0 % [65,8 ; 78,2] | +164 [+114 ; +222] | 8 contre 14 |
 | 2 ms | 54,8 % [47,9 ; 61,6] | +33 [−15 ; +82] | 2,6 contre 14 |
 
+Les lignes à 10, 5 et 2 ms n'ont pas de fichier dans `bench/results/` : le
+nom du fichier portait encore le `/` du temps, et l'écriture échouait après
+l'affichage du résumé.
+
 Zig v2 avec environ 45 fois moins de temps vaut Moka v1. Ce facteur
 additionne la vitesse du moteur et le meilleur réseau : à 10 ms, avec à peu
 près autant de visites que Moka, Zig v2 gagne encore 82 % de ses parties.
@@ -101,14 +117,17 @@ près autant de visites que Moka, Zig v2 gagne encore 82 % de ses parties.
 
 Le réseau de KataGo, sans aucune recherche, bat Zig v2. Quatre fois plus de
 temps, soit 2 358 visites par coup au lieu de 187, n'aide pas : c'est le
-réseau v2 qui limite, pas la recherche. Les deux arbitres désignent le même
-vainqueur dans les 200 parties.
+réseau v2 qui limite, pas la recherche. Ces deux matchs ont tourné avant
+l'arbitrage par KataGo : leurs fichiers ont `score` pour Moka et
+`katagoScore` pour KataGo, et les chiffres ci-dessus viennent de
+`katagoScore`. Les deux arbitres désignent le même vainqueur dans les
+200 parties.
 
 ### Contre un rang humain imité
 
 `zig-reuse` v2 à 100 ms contre KataGo human SL, 100 parties par ligne,
-3 parties en parallèle. Ces deux matchs ont tourné avant l'arbitrage par
-KataGo ; les deux scores ont été enregistrés :
+3 parties en parallèle. Ces deux matchs aussi ont tourné avant l'arbitrage
+par KataGo ; les deux scores ont été enregistrés :
 
 | Profil | Score, arbitre Moka [IC 95 %] | Score, arbitre KataGo | Désaccords |
 |---|---|---|---|

@@ -163,8 +163,9 @@ const createWorkerEngine = async (workerUrl: string, urls: ModelUrls): Promise<B
 };
 
 const createMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
-  const initializationStartTime = performance.now();
   const manifest = await loadJson<GoModelManifest>(urls.manifest);
+  // Like the Worker, the measure starts at the weights fetch.
+  const initializationStartTime = performance.now();
   const runtime = GoModelRuntime.create(manifest, await fetchArrayBuffer(urls.weights));
   const infer = async (features: Float32Array) => runtime.infer(features);
 
@@ -177,8 +178,9 @@ const createMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => 
 };
 
 const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
-  const initializationStartTime = performance.now();
+  // The Worker compiles infer.wasm when it loads, before `initialize`: the measure leaves it out here too.
   const module = await WebAssembly.compile(await fetchArrayBuffer(urls.zigWasm));
+  const initializationStartTime = performance.now();
   const engine = await createEngine(module, await fetchArrayBuffer(urls.weights));
   const infer = async (features: Float32Array) => engine.infer(features);
 

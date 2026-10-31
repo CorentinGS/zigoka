@@ -4,7 +4,42 @@
 *   **Status:** Approved
 *   **Date:** 2026-10-30
 
-Partiellement amendé par [`zig-wasm-nxn.md`](zig-wasm-nxn.md).
+Partiellement amendé par [`zig-wasm-nxn.md`](zig-wasm-nxn.md),
+[`zig-search.md`](zig-search.md) et [`moka-v2.md`](moka-v2.md). Le corps du
+design décrit le moteur tel qu'il a été approuvé. Ce qui a changé depuis :
+
+*   **Chemins et fichiers (`zig-wasm-nxn.md`).** Les artefacts vont dans
+    `zig-out/<id>/` et non `zig-out/bin/`, le layout généré dans
+    `gen/<id>/model_layout.zig`, la référence du banc dans
+    `bench/results/baseline-<id>.json`. Le générateur est bâti en
+    `generate-9.js` et `generate-19.js`. Les données de référence passent au
+    format v2 (`oracle/fixtures/<id>/`, `chosen-move.u16`, fichiers `logits-*`
+    et `value-*`), et le banc reçoit `bench-inputs.json` et quatre jeux de
+    sorties au lieu d'`expected.f32`. La règle de parité, qui n'était qu'un
+    diagnostic du banc, devient un critère (`bench/parity-rule.ts`).
+*   **Noyaux.** Les couches linéaires sont réécrites en `[in][out]` au
+    chargement (`weights.transposeLinear`, quatrième fonction publique de
+    `weights.zig`), et `dense.linear` accumule sur 4 voies f64. Les
+    convolutions calculent plusieurs positions à la fois (`TILES` dans
+    `src/infer/kernels.zig`, `moka-v2.md`). L'`infer.wasm` de `moka-9` fait
+    26 123 octets (8,8 Ko après gzip), et `infer-safe.wasm` 26 486 octets.
+*   **Scripts.** `build` et `test` construisent aussi `search`, `test` lance
+    aussi `pnpm build:js`, `oracle` passe par `scripts/run-oracle.mjs`, et
+    `demo`, `match` et `typecheck` s'ajoutent ; `check:all` commence par
+    `typecheck` (`package.json`).
+*   **Banc.** Avec `worker=0`, `initializationMs` part du `fetch` des poids
+    et ne compte pas la compilation d'`infer.wasm`, comme avec le Worker.
+    `bench/serve.mjs` sert aussi `/demo/`, redirige `/` vers
+    `bench/index.html`, ajoute un en-tête CORP et répond 405 hors GET et
+    HEAD. Le paramètre `mode` n'accepte que `single`.
+*   **Oracle.** `--check` travaille dans un dossier de `os.tmpdir()`, effacé
+    aussi après un échec. Les empreintes de `vendor/moka/VENDORED.md` et de
+    `vendor/moka-v2/VENDORED.md` sont vérifiées à chaque lancement, et un
+    fichier non listé est refusé.
+*   **Tests.** `src/test_root.zig` importe aussi `rules/rules.zig`, et
+    `tests/wasm-checks.test.mjs` contrôle aussi `search.wasm`.
+    `js/engine.ts` exporte aussi `instantiateWithWeights`, que
+    `js/search-engine.ts` réutilise.
 
 --------------------------------------------------------------------------------
 
@@ -996,7 +1031,7 @@ Trois critères ont été écartés au profit de l'aller-retour `infer` isolé :
         extension INT16 de l'oracle validée sur l'export Python de Moka ;
     3.  documenter le protocole de lots du site (`experiment-log.md:1674`) ;
     4.  connaître le nom de format du manifeste mixte. `pnpm gen` n'accepte
-        que `million-go-int8` (`tools/gen_model_layout.zig:101`) et refusera
+        que `million-go-int8` (`tools/gen_model_layout.zig:103`) et refusera
         tout autre nom avant de lire les tenseurs.
 *   **Recherche dans le Worker.** Un design séparé couvrira :
     *   les règles dans `infer.wasm` ;
