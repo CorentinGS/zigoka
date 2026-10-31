@@ -65,11 +65,14 @@ test("site/_headers: every file is revalidated, with a single Cache-Control", ()
   }
 });
 
-test("site/_headers: each page gets one CSP, which allows the worker", () => {
+test("site/_headers: each page gets one CSP, which allows the worker and Cloudflare Web Analytics", () => {
   for (const pagePath of PAGE_PATHS) {
     const policies = headersFor(rules, pagePath, "content-security-policy");
 
     assert.equal(policies.length, 1, `${pagePath} receives ${policies.length} policies`);
     assert.match(policies[0], /worker-src 'self'/);
+    // The custom domain injects the beacon, which then reports to cloudflareinsights.com.
+    assert.match(policies[0], /script-src [^;]*https:\/\/static\.cloudflareinsights\.com/);
+    assert.match(policies[0], /connect-src [^;]*https:\/\/cloudflareinsights\.com/);
   }
 });
