@@ -342,6 +342,11 @@ var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 // site/engine-worker.ts
 var WORKER_FILE_NAME = "engine-worker.js";
 var post = (response) => self.postMessage(response);
+var assetUrl = (fileName) => {
+  const url = new URL(`./${fileName}`, import.meta.url);
+  url.search = new URL(import.meta.url).search;
+  return url.href;
+};
 var fetchBytes = async (url) => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -361,7 +366,7 @@ var describeWasmLoadError = (fileName, { fetchFailed, simdValid }) => {
 var compileWasmModule = async (fileName) => {
   let bytes;
   try {
-    bytes = await fetchBytes(new URL(`./${fileName}`, import.meta.url).href);
+    bytes = await fetchBytes(assetUrl(fileName));
   } catch {
     throw new Error(describeWasmLoadError(fileName, { fetchFailed: true, simdValid: false }));
   }
@@ -377,8 +382,8 @@ var compileWasmModule = async (fileName) => {
   }
 };
 var loadEngine = async () => {
-  const manifestUrl = new URL("./go-model.json", import.meta.url).href;
-  const weightsUrl = new URL("./go-model.bin", import.meta.url).href;
+  const manifestUrl = assetUrl("go-model.json");
+  const weightsUrl = assetUrl("go-model.bin");
   let manifest;
   let weights;
   try {

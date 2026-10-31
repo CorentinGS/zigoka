@@ -17,6 +17,17 @@ type LoadedEngine = {
 
 const post = (response: SiteWorkerResponse) => self.postMessage(response);
 
+// The page loads this worker as engine-worker.js?v=<hash of the engine files>
+// (scripts/build-site.mjs). The files it fetches carry the same version, so no
+// cache can pair this worker with the files of another deploy.
+const assetUrl = (fileName: string) => {
+  const url = new URL(`./${fileName}`, import.meta.url);
+
+  url.search = new URL(import.meta.url).search;
+
+  return url.href;
+};
+
 const fetchBytes = async (url: string) => {
   const response = await fetch(url);
 
@@ -50,7 +61,7 @@ const compileWasmModule = async (fileName: string) => {
   let bytes: ArrayBuffer;
 
   try {
-    bytes = await fetchBytes(new URL(`./${fileName}`, import.meta.url).href);
+    bytes = await fetchBytes(assetUrl(fileName));
   } catch {
     throw new Error(describeWasmLoadError(fileName, { fetchFailed: true, simdValid: false }));
   }
@@ -68,8 +79,8 @@ const compileWasmModule = async (fileName: string) => {
 };
 
 const loadEngine = async (): Promise<LoadedEngine> => {
-  const manifestUrl = new URL("./go-model.json", import.meta.url).href;
-  const weightsUrl = new URL("./go-model.bin", import.meta.url).href;
+  const manifestUrl = assetUrl("go-model.json");
+  const weightsUrl = assetUrl("go-model.bin");
 
   let manifest: GoModelManifest;
   let weights: ArrayBuffer;
