@@ -486,8 +486,8 @@ var isGameOver = (gameState) => gameState.consecutivePassCount >= GO_GAME_OVER_P
 var LEVELS = [
   { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
   { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Medium (1 s)", usesSearch: true, timeMs: 1e3 },
-  { id: "strong", label: "Strong (4 s)", usesSearch: true, timeMs: 4e3 }
+  { id: "medium", label: "Medium (0.3 s)", usesSearch: true, timeMs: 300 },
+  { id: "strong", label: "Strong (1 s)", usesSearch: true, timeMs: 1e3 }
 ];
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 
@@ -660,7 +660,7 @@ var startGame = () => {
   worker.postMessage({ type: "new-game" });
   beginTurn();
 };
-var worker = new Worker(new URL("./engine-worker.js?v=a5dcb1a761ce", import.meta.url), { type: "module" });
+var worker = new Worker(new URL("./engine-worker.js?v=00d2ed542c81", import.meta.url), { type: "module" });
 worker.addEventListener("message", (event) => {
   const response = event.data;
   if (response.type === "ready") {

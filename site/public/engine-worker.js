@@ -334,8 +334,8 @@ var encodeStudentFeatures = (gameState) => {
 var LEVELS = [
   { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
   { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Medium (1 s)", usesSearch: true, timeMs: 1e3 },
-  { id: "strong", label: "Strong (4 s)", usesSearch: true, timeMs: 4e3 }
+  { id: "medium", label: "Medium (0.3 s)", usesSearch: true, timeMs: 300 },
+  { id: "strong", label: "Strong (1 s)", usesSearch: true, timeMs: 1e3 }
 ];
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 

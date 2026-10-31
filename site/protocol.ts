@@ -18,14 +18,13 @@ type LevelSpec = {
   timeMs: number;
 };
 
-// Medium and Strong think for a fixed time, without a visit cap. Moka v2 runs
-// about 2,000 visits per second; the 8,192-node tree fills after about 4 s and
-// then stops the search early.
+// Medium and Strong think for a fixed time, without a visit cap; no level
+// thinks longer than 1 s. Moka v2 runs about 1,400 visits per second.
 const LEVELS: LevelSpec[] = [
   { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
   { id: "easy", label: "Easy", usesSearch: true, maxVisits: 16, timeMs: 500 },
-  { id: "medium", label: "Medium (1 s)", usesSearch: true, timeMs: 1000 },
-  { id: "strong", label: "Strong (4 s)", usesSearch: true, timeMs: 4000 },
+  { id: "medium", label: "Medium (0.3 s)", usesSearch: true, timeMs: 300 },
+  { id: "strong", label: "Strong (1 s)", usesSearch: true, timeMs: 1000 },
 ];
 
 const LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level])) as Record<
