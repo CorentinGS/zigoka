@@ -94,6 +94,11 @@ const nodeBundles = [
     outfile: resolve("match/dist/match.js"),
   },
   {
+    entryPoints: [resolve("match/match.ts")],
+    outfile: resolve("match/dist/match-19.js"),
+    plugins: [substituteConstants19],
+  },
+  {
     entryPoints: [resolve("tests/moka-rules.ts")],
     outfile: resolve("tests/dist/moka-rules-9.js"),
   },

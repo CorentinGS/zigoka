@@ -22,6 +22,7 @@
     "site:build": "node scripts/build-site.mjs",
     "site": "pnpm site:build && node bench/serve.mjs",
     "match": "zig build models wasm search && pnpm build:js && node match/dist/match.js",
+    "match:19": "zig build models wasm search && pnpm build:js && node match/dist/match-19.js",
     "check:all": "pnpm typecheck && pnpm gen && pnpm build && pnpm models:check && pnpm oracle && pnpm oracle:check && pnpm test && pnpm test:e2e",
     "typecheck": "tsc --noEmit"
   },

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 
-import { GO_BOARD_SIZE, GO_KOMI_POINTS, GO_PASS_MOVE } from "../vendor/moka/src/constants.ts";
+import { GO_BOARD_SIZE, GO_KOMI_POINTS } from "../vendor/moka/src/constants.ts";
 import type { MoveChoice, Player } from "./games.ts";
 
 const COLUMNS = "ABCDEFGHJKLMNOPQRST";
@@ -33,32 +33,33 @@ type KataGoPlayer = Player & {
   close: () => void;
 };
 
-const toVertex = (move: number) => {
-  if (move === GO_PASS_MOVE) {
+/** The pass is move `size * size`, as in Moka's move indices. */
+const toVertex = (move: number, size = GO_BOARD_SIZE) => {
+  if (move === size * size) {
     return "pass";
   }
 
-  const row = Math.floor(move / GO_BOARD_SIZE);
-  const column = move % GO_BOARD_SIZE;
+  const row = Math.floor(move / size);
+  const column = move % size;
 
-  return `${COLUMNS[column]}${GO_BOARD_SIZE - row}`;
+  return `${COLUMNS[column]}${size - row}`;
 };
 
-const fromVertex = (vertex: string) => {
+const fromVertex = (vertex: string, size = GO_BOARD_SIZE) => {
   const upper = vertex.trim().toUpperCase();
 
   if (upper === "PASS") {
-    return GO_PASS_MOVE;
+    return size * size;
   }
 
   const column = COLUMNS.indexOf(upper[0] ?? "");
-  const row = GO_BOARD_SIZE - Number(upper.slice(1));
+  const row = size - Number(upper.slice(1));
 
-  if (column < 0 || column >= GO_BOARD_SIZE || !Number.isInteger(row) || row < 0 || row >= GO_BOARD_SIZE) {
+  if (column < 0 || column >= size || !Number.isInteger(row) || row < 0 || row >= size) {
     throw new Error(`KataGo answered an unknown vertex "${vertex}".`);
   }
 
-  return row * GO_BOARD_SIZE + column;
+  return row * size + column;
 };
 
 /** Parses a GTP score such as "B+3.5", "W+0.5" or "0" into Black's margin. */

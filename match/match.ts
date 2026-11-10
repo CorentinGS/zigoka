@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
+import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
+import { createGameState, encodeStudentFeatures, playMove, selectHighestLegalMove } from "../vendor/moka/src/game.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { createEngine } from "../js/engine.ts";
 import { createSearchEngine } from "../js/search-engine.ts";
@@ -27,11 +29,20 @@ import {
   type PlayerKind,
 } from "./games.ts";
 import { createKataGoPlayer, type KataGoPlayer } from "./katago.ts";
+import type { Evaluate } from "./search.ts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const rootDirectory = path.resolve(path.dirname(scriptPath), "..", "..");
 const resultsDirectory = path.join(rootDirectory, "bench", "results");
-const DEFAULT_MODEL_ID = "moka-9";
+/**
+ * The bundle fixes the board: match.js plays 9x9 and defaults to Moka, match-19.js plays 19x19
+ * (esbuild swaps in oracle/constants-19.ts) and has no default model.
+ */
+const DEFAULT_MODEL_ID = GO_BOARD_SIZE === 9 ? "moka-9" : undefined;
+/** Zig and Moka must agree on these positions before a match starts; a mismatch would only play badly. */
+const CROSS_CHECK_MOVES = 8;
+const CROSS_CHECK_LOGIT_TOLERANCE = 0.05;
+const CROSS_CHECK_VALUE_TOLERANCE = 0.01;
 const KATAGO = "katago";
 const KATAGO_CONFIG = path.join(rootDirectory, "match", "katago-gtp.cfg");
 /** Visits of the normal model when the human SL model plays: they only decide when to pass. */
@@ -57,20 +68,33 @@ type CliGameResult = GameResult & { mokaScore?: number };
 
 type GameTiming = { index: number; slot: number; startMs: number; endMs: number };
 
+/** Registered models are built into zig-out/, local ones (zig build -Dlocal-model) into zig-out/local/. */
+const findBuildDirectory = (modelId: string) => {
+  const local = path.join(rootDirectory, "zig-out", "local");
+
+  return fs.existsSync(path.join(local, "models", modelId, "go-model.json")) ? local : path.join(rootDirectory, "zig-out");
+};
+
 const loadEngines = async (modelId: string): Promise<Engines> => {
-  const modelDirectory = path.join(rootDirectory, "zig-out", "models", modelId);
-  const wasmDirectory = path.join(rootDirectory, "zig-out", modelId);
+  const buildDirectory = findBuildDirectory(modelId);
+  const modelDirectory = path.join(buildDirectory, "models", modelId);
+  const wasmDirectory = path.join(buildDirectory, modelId);
 
   if (!fs.existsSync(path.join(modelDirectory, "go-model.json"))) {
-    throw new Error(`Unknown model "${modelId}": ${path.relative(rootDirectory, modelDirectory)} is missing.`);
+    throw new Error(
+      `Unknown model "${modelId}": neither zig-out/models/${modelId} nor zig-out/local/models/${modelId} exists.`,
+    );
   }
 
   const manifest = JSON.parse(
     fs.readFileSync(path.join(modelDirectory, "go-model.json"), "utf8"),
   ) as GoModelManifest;
 
-  if (manifest.architecture.boardSize !== 9) {
-    throw new Error(`The match plays 9x9 games; model "${modelId}" is ${manifest.architecture.boardSize}x${manifest.architecture.boardSize}.`);
+  if (manifest.architecture.boardSize !== GO_BOARD_SIZE) {
+    throw new Error(
+      `This match plays ${GO_BOARD_SIZE}x${GO_BOARD_SIZE} games; model "${modelId}" is ` +
+        `${manifest.architecture.boardSize}x${manifest.architecture.boardSize}.`,
+    );
   }
 
   const weights = fs.readFileSync(path.join(modelDirectory, "go-model.bin"));
@@ -86,11 +110,38 @@ const loadEngines = async (modelId: string): Promise<Engines> => {
   );
   const moka = GoModelRuntime.create(manifest, weightsBuffer.slice(0));
 
+  crossCheck(modelId, (features) => zig.infer(features), (features) => moka.infer(features));
+
   return {
     zig: (features) => zig.infer(features),
     moka: (features) => moka.infer(features),
     search: (state, options) => searchEngine.search(state, options),
   };
+};
+
+/** Compares Zig with Moka's runtime along the greedy line from the empty board. */
+const crossCheck = (modelId: string, zig: Evaluate, moka: Evaluate) => {
+  let state = createGameState();
+
+  for (let move = 0; move <= CROSS_CHECK_MOVES; move += 1) {
+    const features = encodeStudentFeatures(state);
+    const expected = moka(features);
+    const actual = zig(features);
+    let logitError = 0;
+
+    for (let index = 0; index < expected.policyLogits.length; index += 1) {
+      logitError = Math.max(logitError, Math.abs(actual.policyLogits[index] - expected.policyLogits[index]));
+    }
+
+    if (logitError > CROSS_CHECK_LOGIT_TOLERANCE || Math.abs(actual.value - expected.value) > CROSS_CHECK_VALUE_TOLERANCE) {
+      throw new Error(
+        `Zig and Moka disagree on model "${modelId}" after ${move} moves ` +
+          `(logits differ by ${logitError}, values ${actual.value} and ${expected.value}).`,
+      );
+    }
+
+    state = playMove(state, selectHighestLegalMove(state, expected.policyLogits)) ?? state;
+  }
 };
 
 const playerLabel = (config: CliConfig, side: "first" | "second") => {
@@ -104,7 +155,7 @@ const playerLabel = (config: CliConfig, side: "first" | "second") => {
       : `${KATAGO}-${config.katago.profile}`;
   }
 
-  const model = config[side === "first" ? "firstModel" : "secondModel"] ?? DEFAULT_MODEL_ID;
+  const model = config[side === "first" ? "firstModel" : "secondModel"];
 
   return `${model === DEFAULT_MODEL_ID ? kind : `${kind}@${model}`}${time}`;
 };
@@ -135,7 +186,7 @@ const printSummary = (summary: CliSummary) => {
   const [low, high] = summary.scoreInterval;
   const [eloLow, eloHigh] = summary.eloInterval;
 
-  console.log(`${first} vs ${second}, ${games} games, ${config.timeMs} ms per move unless noted`);
+  console.log(`${first} vs ${second}, ${GO_BOARD_SIZE}x${GO_BOARD_SIZE}, ${games} games, ${config.timeMs} ms per move unless noted`);
   console.log(
     `  ${first}: ${summary.wins} wins, ${summary.losses} losses, ${summary.draws} draws ` +
       `(${summary.winsAsBlack} as black, ${summary.winsAsWhite} as white)`,
@@ -170,8 +221,8 @@ const parseConfig = (): CliConfig => {
     options: {
       first: { type: "string", default: "zig-puct" },
       second: { type: "string", default: "moka-puct" },
-      "first-model": { type: "string", default: DEFAULT_MODEL_ID },
-      "second-model": { type: "string", default: DEFAULT_MODEL_ID },
+      "first-model": { type: "string", ...(DEFAULT_MODEL_ID === undefined ? {} : { default: DEFAULT_MODEL_ID }) },
+      "second-model": { type: "string", ...(DEFAULT_MODEL_ID === undefined ? {} : { default: DEFAULT_MODEL_ID }) },
       games: { type: "string", default: "100" },
       time: { type: "string", default: "100" },
       "first-time": { type: "string" },
@@ -200,6 +251,12 @@ const parseConfig = (): CliConfig => {
     (values["katago-binary"] === undefined || values["katago-model"] === undefined)
   ) {
     throw new Error("The katago player needs --katago-binary and --katago-model (or KATAGO_BINARY and KATAGO_MODEL).");
+  }
+
+  for (const side of ["first", "second"] as const) {
+    if (values[side] !== KATAGO && values[`${side}-model`] === undefined) {
+      throw new Error(`--${side}-model is required: the ${GO_BOARD_SIZE}x${GO_BOARD_SIZE} match has no default model.`);
+    }
   }
 
   if (values["katago-profile"] !== undefined && values["katago-human-model"] === undefined) {
@@ -252,7 +309,7 @@ const createSide = async (config: CliConfig, side: "first" | "second"): Promise<
     });
   }
 
-  const engines = await loadEngines(config[side === "first" ? "firstModel" : "secondModel"] ?? DEFAULT_MODEL_ID);
+  const engines = await loadEngines(config[side === "first" ? "firstModel" : "secondModel"]!);
 
   return createPlayer(kind, engines, config, getTimeMs(config, side));
 };
@@ -298,7 +355,9 @@ const runWorker = async () => {
 
 const runMain = async () => {
   const config = parseConfig();
-  const engines = await loadEngines(DEFAULT_MODEL_ID);
+  // Openings come from Moka at 9x9, as before, and from the first side that is a model otherwise.
+  const openingModel = DEFAULT_MODEL_ID ?? (config.first === KATAGO ? config.secondModel : config.firstModel)!;
+  const engines = await loadEngines(openingModel);
   const tasks = createTasks(
     createOpenings(config.games / 2, config.openingMoves, engines.zig, config.seed),
   );
