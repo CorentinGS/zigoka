@@ -130,14 +130,16 @@ proposition :
 *   poids sous le budget (environ 800 Ko) ;
 *   parité Zig / Moka ;
 *   200 parties à 1 s contre un profil human SL de KataGo, au rang cible
-    fixé après le pilote. Ce rang est `rank_5k`, où le pilote fait 52,5 %
-    [45,6 ; 59,4] (voir Banc 19×19). Un candidat doit y faire au moins
-    60 % (+70 Elo contre le profil, environ +50 sur le pilote), au-dessus
-    de l'intervalle du pilote. Au-delà d'environ 75 %, le rang de
-    référence passe au profil suivant (`rank_3k`, pas encore joué). Le
-    seuil vaut pour les conditions du banc : 6 matchs en parallèle, aucun
-    entraînement à côté, la même recherche. Un changement de la recherche
-    (la règle de passe, par exemple) demande de rejouer le pilote ;
+    fixé après le pilote. Ce rang est `rank_5k`, où le pilote fait 59,5 %
+    [52,7 ; 66,3] avec la fin de partie corrigée de la recherche (voir
+    Banc 19×19). Un candidat doit y faire au moins 67 % (+123 Elo contre
+    le profil, environ +55 sur le pilote), au-dessus de l'intervalle du
+    pilote. Au-delà d'environ 75 %, le rang de référence passe au profil
+    suivant (`rank_3k`, pas encore joué). Le seuil vaut pour les
+    conditions du banc : 6 matchs en parallèle, aucun entraînement à côté,
+    la même recherche. Un changement de la recherche demande de rejouer le
+    pilote, comme pour le compte de fin de partie : le seuil était de 60 %
+    sur les 52,5 % de l'ancienne recherche ;
 *   au moins 55 victoires sur 100 contre la version précédente.
 
 L'arbitre est le score de KataGo, pas le retrait des pierres mortes de
@@ -333,32 +335,69 @@ cherche 1 s par coup en gardant l'arbre.
 | `zig-policy` | `rank_1k` | 20 | 0 % |
 | `zig-reuse`, 1 s | `rank_5k` | 20 | 52,5 % [30,6 ; 74,4] |
 | `zig-policy` | `rank_5k` | 200 | **18,5 % [13,1 ; 23,9]** |
-| `zig-reuse`, 1 s | `rank_5k` | 200 | **52,5 % [45,6 ; 59,4]** |
+| `zig-reuse`, 1 s, ancienne fin | `rank_5k` | 200 | 52,5 % [45,6 ; 59,4] |
+| `zig-reuse`, 1 s | `rank_5k` | 20 | 60,0 % [38,5 ; 81,5] |
+| `zig-reuse`, 1 s | `rank_5k` | 200 | **59,5 % [52,7 ; 66,3]** |
 
-Les deux lignes de 200 parties sont la référence (6 matchs en parallèle,
-sans entraînement à côté). Les fichiers de résultats restent dans
+Les lignes en gras sont la référence (6 matchs en parallèle, sans
+entraînement à côté). « Ancienne fin » est la recherche d'avant le
+correctif du compte de fin de partie (voir Arbitrage), les lignes
+suivantes la recherche corrigée. Les fichiers de résultats restent dans
 `bench/results/`, non versionnés.
 
 *   **La politique seule** se place entre `rank_10k` et `rank_5k` :
     −258 Elo [−328 ; −201] contre `rank_5k`.
 *   **La recherche aide déjà**, malgré une tête de valeur à peine
-    meilleure que la constante : de 18,5 % à 52,5 %, environ +275 Elo.
-    `zig-reuse` fait 470 visites par coup à 1 s, soit 2,1 ms par visite
-    arbre compris (397 sur les 20 parties du premier passage).
-*   **`rank_5k` devient le rang de référence** : le pilote y est à
+    meilleure que la constante : de 18,5 % à 59,5 %, environ +325 Elo.
+    `zig-reuse` fait 412 visites par coup à 1 s, soit 2,4 ms par visite
+    arbre compris.
+*   **`rank_5k` reste le rang de référence** : le pilote y est proche de
     l'équilibre, loin des deux bornes, si bien qu'un progrès comme un
     recul s'y mesure (voir Critères).
 *   **Arbitrage.** Avec la politique seule, KataGo et le retrait des
     pierres mortes de Moka désignent le même vainqueur dans 197 parties
-    sur 200. Avec la recherche, ils divergent dans 19 parties sur 200, et
-    toujours au profit de Zig selon Moka : 17 défaites et une nulle selon
-    KataGo sont des victoires selon Moka, une défaite est une nulle. Dans
-    15 de ces parties, c'est Zig qui passe en dernier : la recherche
-    répond à un passe dans une position que l'estimation des pierres
-    mortes de Moka juge gagnée et que KataGo compte perdue, avec un écart
-    de 4 à 69 points. Compté par Moka, `zig-reuse` ferait 61,5 %. Une
-    règle de passe plus prudente en 19×19 est un gain possible pour la
-    recherche, sans toucher au modèle.
+    sur 200. Avec l'ancienne recherche, ils divergeaient dans 19 parties
+    sur 200, toujours au profit de Zig selon Moka : 17 défaites et une
+    nulle selon KataGo étaient des victoires selon Moka, une défaite une
+    nulle, avec un écart de 4 à 69 points. Compté par Moka, `zig-reuse`
+    aurait fait 61,5 %.
+*   **La cause est le compte de fin de la recherche.** Avant de compter,
+    Moka retire les pierres mortes au sens de Benson (dans la zone
+    vivante en passant de l'adversaire), puis chaque camp à son tour joue
+    la plus grosse capture immédiate, ou passe, jusqu'à deux passes
+    (`getAutomaticallyDeadMoves`). Le score
+    final de KataGo ne joue pas ces captures. La recherche comptait donc
+    ses fins de partie comme si Zig avait pris des pierres qu'il n'a
+    jamais prises, et passait au lieu de les capturer. Dans les 19
+    parties, des pierres restent en atari à la fin ; dans 17, le compte
+    brut, sans rien retirer, est exactement celui de KataGo. Sur les 400
+    parties des deux lignes de 200, le retrait des seules pierres mortes
+    au sens de Benson désigne le vainqueur de KataGo dans les 400, le
+    compte complet de Moka dans 378.
+*   **Le correctif** (`searchScore` dans `src/search/tree.zig`,
+    `getSearchScore` dans `match/search.ts`) : en 19×19, la recherche
+    compte une partie finie avec ce seul retrait, sans les captures
+    d'après-partie. Le 9×9 garde le compte de Moka. Rejouées sur CPU, au
+    dernier passe de Zig des 19 parties, l'ancienne recherche passe 17
+    fois et la nouvelle jamais ; dans 20 parties gagnées par Zig, les deux
+    passent 19 fois. Sur 200 parties, KataGo et Moka ne divergent plus
+    que dans une, gagnée par Zig selon KataGo.
+*   **Le gain au match est cohérent, pas prouvé seul.** Les deux séries
+    de 200 jouent les mêmes ouvertures avec les mêmes couleurs (graine 1),
+    mais une même ouverture donne presque deux tirages indépendants : une
+    partie perdue la première fois est gagnée la seconde dans 60 % des
+    cas, une partie gagnée l'est encore dans 57 %. Le solde est de
+    +14 victoires (60 parties améliorées, 46 dégradées, test du signe
+    p = 0,21). C'est ce qu'on attend de 19 parties perdues au compte qui
+    redeviennent des parties ordinaires (environ 11 victoires, +5,5
+    points), pas une preuve à elle seule.
+*   **Moins de visites, seulement en fin de partie.** De 470 à 412
+    visites par coup sur 200 parties, mais le nombre de visites avant le
+    coup 300 ne change pas (401, 377 et 431 par tranche de 100 coups
+    avant, 402, 374 et 418 après). Après le coup 300, il passe de 1 323
+    à 678 : une fin de partie se compte sans inférence, et l'ancienne
+    recherche en atteignait plus en passant tôt (explication probable,
+    pas mesurée).
 
 ### Réglages de la valeur
 
@@ -483,11 +522,10 @@ ms, à `count = 1` :
 *   **Corpus on-policy.** v2 a montré que l'auto-jeu de b18 seul ne suffit
     pas (19/100 contre b6c96, 50/100 avec le corpus on-policy). Il faut le
     même en 19×19 : l'élève contre des profils human SL, b18 qui étiquette.
-*   **Règle de passe en 19×19.** La recherche répond à un passe dans des
-    positions que l'estimation des pierres mortes de Moka juge mal
-    (19 parties sur 200 contre `rank_5k`, voir Banc 19×19). Ne passer
-    que si cette estimation est sûre, ou continuer à jouer tant qu'un
-    groupe reste incertain, se mesure sans réentraîner.
+*   **Compte de fin de la recherche en 9×9.** Le correctif du 19×19
+    (voir Banc 19×19, Arbitrage) ne touche pas le 9×9, où la recherche
+    compte toujours avec les captures d'après-partie de Moka. Le même
+    changement s'y mesurerait sur le banc de v2, sans réentraîner.
 *   **Redémarrage de KataGo par shard.** Prévu par la proposition, pas
     implémenté : pendant le pilote, la mémoire suit le remplissage du cache
     du réseau et ralentit vers un plafond (voir Pilote). À revoir si une
