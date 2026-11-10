@@ -18,6 +18,19 @@ uv sync --extra dev
 uv run python -m go_pipeline.device   # must print your GPU name
 ```
 
+AMD GPU with ROCm (checked on a Radeon RX 6800/6900 XT, gfx1030, with
+torch 2.14.1+rocm7.2: `torch.cuda` works through HIP, fp16 and bf16
+autocast included). The wheel bundles the ROCm runtime; no system ROCm
+install is needed beyond the amdgpu kernel driver:
+
+```sh
+cd pipeline
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python torch==2.14.1 --index-url https://download.pytorch.org/whl/rocm7.2
+uv pip install --python .venv/bin/python -e ".[dev]"
+uv run --no-sync python -m go_pipeline.device   # must print the Radeon
+```
+
 CPU-only (e.g. this dev machine, which has no NVIDIA GPU):
 
 ```sh

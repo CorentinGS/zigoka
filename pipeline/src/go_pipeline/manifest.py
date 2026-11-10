@@ -16,34 +16,18 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from . import AREA, BOARD_SIZE, INPUT_PLANES, MOVE_COUNT
-from .model import BLOCKS, BOTTLENECK, GLOBAL_HIDDEN, GLOBAL_INTERVAL, POLICY_CH, TRUNK, VALUE_CH, VALUE_HIDDEN, MokaNet
+from .model import MOKA_V1, Architecture, MokaNet, manifest_map
 
-ARCHITECTURE = {
-    "boardSize": BOARD_SIZE,
-    "bottleneckChannelCount": BOTTLENECK,
-    "globalResidualBlockInterval": GLOBAL_INTERVAL,
-    "globalResidualHiddenChannelCount": GLOBAL_HIDDEN,
-    "inputPlaneCount": INPUT_PLANES,
-    "policyChannelCount": POLICY_CH,
-    "policyMoveCount": MOVE_COUNT,
-    "residualBlockCount": BLOCKS,
-    "residualBlockKind": "nested-bottleneck",
-    "scoreHiddenChannelCount": VALUE_HIDDEN,
-    "trunkChannelCount": TRUNK,
-    "valueChannelCount": VALUE_CH,
-}
+ARCHITECTURE = MOKA_V1.to_manifest()
 FORMAT = "million-go-int8"
 VERSION = 1
 
 
-@lru_cache(maxsize=1)
-def tensor_specs() -> tuple[tuple[str, tuple[int, ...], str], ...]:
+@lru_cache(maxsize=None)
+def tensor_specs(arch: Architecture = MOKA_V1) -> tuple[tuple[str, tuple[int, ...], str], ...]:
     """(manifest name, manifest shape, state_dict key) derived from MokaNet."""
-    from .model import _MANIFEST_MAP
-
-    reference = MokaNet()
-    key_of = dict(_MANIFEST_MAP)
+    reference = MokaNet(arch)
+    key_of = dict(manifest_map(arch))
     return tuple(
         (name, tuple(_to_manifest(name, tensor).shape), key_of[name])
         for name, tensor in reference.manifest_items()
@@ -114,7 +98,7 @@ def export_model(model: MokaNet, out_dir: str | Path) -> dict:
         offset += len(data)
         return here
 
-    for name, shape, _key in tensor_specs():
+    for name, shape, _key in tensor_specs(model.arch):
         arr = _to_manifest(name, items[name])
         assert tuple(arr.shape) == shape, f"{name}: {arr.shape} != {shape}"
         if name.endswith(".weight"):
@@ -124,7 +108,7 @@ def export_model(model: MokaNet, out_dir: str | Path) -> dict:
         else:
             tensors[name] = {"dataOffset": push(arr.astype("<f4").tobytes()), "dtype": "float32", "shape": list(shape)}
     blob = b"".join(chunks)
-    manifest = {"architecture": ARCHITECTURE, "format": FORMAT,
+    manifest = {"architecture": model.arch.to_manifest(), "format": FORMAT,
                 "sha256": hashlib.sha256(blob).hexdigest(), "tensors": tensors,
                 "version": VERSION, "weightsBytes": len(blob)}
     (out / "go-model.bin").write_bytes(blob)
@@ -132,7 +116,7 @@ def export_model(model: MokaNet, out_dir: str | Path) -> dict:
     return manifest
 
 
-def _parse_manifest(model_dir: str | Path) -> tuple[dict, bytes]:
+def _parse_manifest(model_dir: str | Path) -> tuple[dict, bytes, Architecture]:
     root = Path(model_dir)
     manifest = json.loads((root / "go-model.json").read_text())
     blob = (root / "go-model.bin").read_bytes()
@@ -140,17 +124,18 @@ def _parse_manifest(model_dir: str | Path) -> tuple[dict, bytes]:
         raise ValueError(f"format must be {FORMAT}, found {manifest.get('format')!r}")
     if manifest.get("version") != VERSION:
         raise ValueError(f"version must be {VERSION}, found {manifest.get('version')!r}")
-    if manifest.get("architecture") != ARCHITECTURE:
-        raise ValueError("architecture does not match the 9x9 student")
+    if not isinstance(manifest.get("architecture"), dict):
+        raise ValueError("manifest has no architecture object")
+    arch = Architecture.from_manifest(manifest["architecture"])
     if len(blob) != manifest.get("weightsBytes"):
         raise ValueError("go-model.bin size does not match weightsBytes")
     if hashlib.sha256(blob).hexdigest() != manifest.get("sha256"):
         raise ValueError("go-model.bin sha256 mismatch")
-    return manifest, blob
+    return manifest, blob, arch
 
 
-def _read_tensors(model_dir: str | Path) -> dict[str, np.ndarray]:
-    manifest, blob = _parse_manifest(model_dir)
+def _read_tensors(model_dir: str | Path) -> tuple[dict[str, np.ndarray], Architecture]:
+    manifest, blob, arch = _parse_manifest(model_dir)
     tensors: dict[str, np.ndarray] = {}
     for name, entry in manifest["tensors"].items():
         if "quantizationGroupSize" in entry:
@@ -175,28 +160,29 @@ def _read_tensors(model_dir: str | Path) -> dict[str, np.ndarray]:
         q = np.frombuffer(blob, np.int8, count, data_offset).reshape(shape).astype(np.float32)
         scales = np.frombuffer(blob, "<f4", shape[0], scale_offset)
         tensors[name] = (q.reshape(shape[0], count // shape[0]) * scales[:, None]).reshape(shape)
-    return tensors
+    return tensors, arch
 
 
 def import_model(model_dir: str | Path, device: torch.device | None = None) -> MokaNet:
-    tensors = _read_tensors(model_dir)
-    expected = {name for name, _, _ in tensor_specs()}
+    tensors, arch = _read_tensors(model_dir)
+    expected = {name for name, _, _ in tensor_specs(arch)}
     if set(tensors) != expected:
         raise ValueError(f"tensor set mismatch: missing={expected - set(tensors)} extra={set(tensors) - expected}")
-    items = {name: _from_manifest(name, tensors[name]) for name, _, _ in tensor_specs()}
-    model = MokaNet()
+    items = {name: _from_manifest(name, tensors[name]) for name, _, _ in tensor_specs(arch)}
+    model = MokaNet(arch)
     model.load_manifest_items(items)
     return model.to(device) if device is not None else model
 
 
 def validate_model_dir(model_dir: str | Path) -> dict:
     """Strict Python mirror of tools/gen_model_layout.zig's checks."""
-    manifest, _blob = _parse_manifest(model_dir)
-    tensors = _read_tensors(model_dir)
-    expected = {name: shape for name, shape, _ in tensor_specs()}
+    manifest, _blob, arch = _parse_manifest(model_dir)
+    tensors, _ = _read_tensors(model_dir)
+    expected = {name: shape for name, shape, _ in tensor_specs(arch)}
     if set(tensors) != set(expected):
         raise ValueError(f"tensor set mismatch: missing={set(expected) - set(tensors)} extra={set(tensors) - set(expected)}")
     for name, shape in expected.items():
         if tuple(tensors[name].shape) != shape:
             raise ValueError(f"{name}: shape {tensors[name].shape} != {shape}")
-    return {"tensors": len(tensors), "weightsBytes": manifest["weightsBytes"], "sha256": manifest["sha256"]}
+    return {"tensors": len(tensors), "weightsBytes": manifest["weightsBytes"], "sha256": manifest["sha256"],
+            "boardSize": arch.board_size}

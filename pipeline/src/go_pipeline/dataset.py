@@ -1,6 +1,6 @@
 """Dataset: teacher-labelled positions in a single .npz.
 
-Arrays: features [N,12,9,9] f32, policy [N,82] f32 (probabilities),
+Arrays: features [N,12,S,S] f32, policy [N,S*S+1] f32 (probabilities),
 value [N] f32 in [-1,1], game_id [N] i64 (split unit: whole games).
 """
 from __future__ import annotations
@@ -8,8 +8,6 @@ from __future__ import annotations
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
-from . import AREA
 
 
 def load_npz(path: str) -> dict[str, np.ndarray]:
@@ -38,13 +36,14 @@ def split_by_game(data: dict[str, np.ndarray], val_fraction: float, seed: int) -
 
 
 def apply_symmetry(features: torch.Tensor, policy: torch.Tensor, k: int, flip: bool) -> tuple[torch.Tensor, torch.Tensor]:
-    """Dihedral transform; the pass logit (index 81) is invariant."""
+    """Dihedral transform; the pass logit (last index) is invariant."""
     def transform(x: torch.Tensor) -> torch.Tensor:
         if flip:
             x = torch.flip(x, dims=[-1])
         return torch.rot90(x, k, dims=[-2, -1]) if k else x
 
-    spatial = transform(policy[:-1].reshape(9, 9)).reshape(AREA)
+    size = features.shape[-1]
+    spatial = transform(policy[:-1].reshape(size, size)).reshape(size * size)
     return transform(features), torch.cat([spatial, policy[-1:]])
 
 

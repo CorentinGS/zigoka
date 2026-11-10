@@ -19,16 +19,18 @@ from pathlib import Path
 
 import numpy as np
 
-from . import AREA, BOARD_SIZE, KOMI, PASS_MOVE
-from .board import EMPTY, GameState, group
+from . import KOMI
+from .board import EMPTY, GameState, group, neighbours
 
 PLANES = 22
 
 
-def _area_owners(board: np.ndarray) -> np.ndarray:
+def _area_owners(board: np.ndarray, size: int) -> np.ndarray:
+    area = size * size
+    adjacency = neighbours(size)
     owners = np.where(board != EMPTY, board, 0).astype(np.int8)
-    visited = np.zeros(AREA, dtype=bool)
-    for start in range(AREA):
+    visited = np.zeros(area, dtype=bool)
+    for start in range(area):
         if board[start] != EMPTY or visited[start]:
             continue
         region, borders, stack = [], set(), [start]
@@ -36,11 +38,7 @@ def _area_owners(board: np.ndarray) -> np.ndarray:
         while stack:
             move = stack.pop()
             region.append(move)
-            row, col = divmod(move, BOARD_SIZE)
-            for adj in (move - 9 if row else -1, move + 9 if row < 8 else -1,
-                        move - 1 if col else -1, move + 1 if col < 8 else -1):
-                if adj < 0:
-                    continue
+            for adj in adjacency[move]:
                 if board[adj] == EMPTY and not visited[adj]:
                     visited[adj] = True
                     stack.append(adj)
@@ -54,11 +52,13 @@ def _area_owners(board: np.ndarray) -> np.ndarray:
 
 
 def encode_katago(state: GameState, global_count: int, komi: float = KOMI) -> tuple[np.ndarray, np.ndarray]:
-    spatial = np.zeros((PLANES, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-    flat = spatial.reshape(PLANES, AREA)
+    size = state.size
+    area = size * size
+    spatial = np.zeros((PLANES, size, size), dtype=np.float32)
+    flat = spatial.reshape(PLANES, area)
     flat[0, :] = 1.0
     visited: set[int] = set()
-    for move in range(AREA):
+    for move in range(area):
         color = state.board[move]
         if color == EMPTY:
             continue
@@ -76,20 +76,20 @@ def encode_katago(state: GameState, global_count: int, komi: float = KOMI) -> tu
     for offset in range(1, 6):
         if len(state.history) >= offset:
             prev = state.history[-offset]
-            if prev == PASS_MOVE:
+            if prev == area:
                 if offset - 1 < global_count:
                     globals_[offset - 1] = 1.0
-            elif 0 <= prev < AREA:
+            elif 0 <= prev < area:
                 flat[8 + offset, prev] = 1.0
-    owners = _area_owners(state.board)
-    for move in range(AREA):
+    owners = _area_owners(state.board, size)
+    for move in range(area):
         if owners[move] == state.next_color:
             flat[18, move] = 1.0
         elif owners[move] == -state.next_color:
             flat[19, move] = 1.0
     if global_count > 5:
         self_komi = -komi if state.next_color == 1 else komi
-        globals_[5] = float(np.clip(self_komi, -(AREA + 20), AREA + 20)) / 20.0
+        globals_[5] = float(np.clip(self_komi, -(area + 20), area + 20)) / 20.0
     if global_count > 8:
         globals_[8] = 1.0  # multi-stone suicide legality flag (KataGo convention)
     return spatial, globals_
@@ -127,7 +127,7 @@ class KataGoTeacher:
         spatial, globals_ = encode_katago(state, self.global_count)
         outputs = self.session.run(None, {self.spatial_name: spatial[None], self.global_name: globals_[None]})
         by_name = dict(zip(self.output_names, outputs))
-        policy = np.asarray(by_name["policy"])[0, 0].reshape(AREA)
+        policy = np.asarray(by_name["policy"])[0, 0].reshape(state.size * state.size)
         policy_pass = np.asarray(by_name["policy_pass"])[0].reshape(-1)[:1]
         logits = np.concatenate([policy, policy_pass]).astype(np.float64)
         probs = np.exp(logits - logits.max())

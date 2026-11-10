@@ -1,6 +1,8 @@
-"""Device resolution: NVIDIA CUDA when available, CPU otherwise.
+"""Device resolution: a GPU when available (NVIDIA CUDA, or AMD ROCm
+through torch's HIP build, which answers to the same `cuda` device
+type), CPU otherwise.
 
-The same code path runs on both. On CUDA we enable TF32 matmuls, cuDNN
+The same code path runs on all three. On CUDA we enable TF32 matmuls, cuDNN
 benchmarking (unless deterministic mode is requested), pinned-memory
 loaders and automatic mixed precision.
 """
@@ -21,7 +23,8 @@ def resolve_device(name: str = "auto") -> torch.device:
         raise RuntimeError(
             "CUDA was requested but torch.cuda.is_available() is False. "
             "Install the CUDA torch wheel (see pipeline/pyproject.toml, which "
-            "pins the PyTorch CUDA index on Linux x86_64) and check `nvidia-smi`."
+            "pins the PyTorch CUDA index on Linux x86_64) and check `nvidia-smi`, "
+            "or the ROCm wheel on AMD (see pipeline/README.md)."
         )
     return device
 
@@ -48,7 +51,9 @@ def configure(device: torch.device, deterministic: bool = False) -> None:
 def describe(device: torch.device) -> str:
     if is_cuda(device):
         props = torch.cuda.get_device_properties(device)
-        return f"cuda: {props.name} ({props.total_memory / 2**30:.1f} GiB, capability {props.major}.{props.minor})"
+        backend = f"rocm {torch.version.hip}, {getattr(props, 'gcnArchName', '?')}" if torch.version.hip \
+            else f"capability {props.major}.{props.minor}"
+        return f"cuda: {props.name} ({props.total_memory / 2**30:.1f} GiB, {backend})"
     return "cpu"
 
 

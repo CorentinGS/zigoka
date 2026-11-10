@@ -17,7 +17,6 @@ from pathlib import Path
 
 import numpy as np
 
-from . import MAX_MOVES, MIN_PASS_MOVE, PASS_MOVE
 from .board import GameState, encode_features, legal_moves, play_move
 from .device import configure, describe, resolve_device
 from .model import load_checkpoint
@@ -36,11 +35,13 @@ class GenerateConfig:
     temperature: float = 1.0
     seed: int = 1
     device: str = "auto"
+    board_size: int = 9
 
 
 def _sample_move(probs: np.ndarray, state: GameState, rng: np.random.Generator, temperature: float) -> int:
     legal = legal_moves(state)
-    choices = [m for m in legal if m != PASS_MOVE or state.move_count >= MIN_PASS_MOVE]
+    spec = state.spec
+    choices = [m for m in legal if m != spec.pass_move or state.move_count >= spec.min_pass_move]
     weights = np.array([probs[m] for m in choices], dtype=np.float64)
     if temperature != 1.0:
         weights = np.power(np.maximum(weights, 1e-12), 1.0 / temperature)
@@ -72,9 +73,9 @@ def generate(config: GenerateConfig) -> Path:
     game_l: list[int] = []
     game_id = 0
     while len(value_l) < config.positions:
-        state = GameState()
+        state = GameState(size=config.board_size)
         game_feats: list[tuple[np.ndarray, np.ndarray, float]] = []
-        while not state.is_game_over() and state.move_count < MAX_MOVES:
+        while not state.is_game_over() and state.move_count < state.spec.max_moves:
             probs, value = teacher.label_state(state)
             game_feats.append((encode_features(state), probs, value))
             actor_probs = probs
@@ -105,7 +106,7 @@ def generate(config: GenerateConfig) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate teacher-labelled 9x9 positions.")
+    parser = argparse.ArgumentParser(description="Generate teacher-labelled positions (9×9 by default).")
     parser.add_argument("--teacher", help="teacher .pt checkpoint")
     parser.add_argument("--teacher-dir", help="teacher go-model.json/.bin directory (e.g. vendor/moka/model)")
     parser.add_argument("--katago", help="KataGo ONNX model path (fresh teacher distillation)")
@@ -116,6 +117,7 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default="auto", help="auto | cuda | cuda:N | cpu")
+    parser.add_argument("--board-size", type=int, default=9, choices=(9, 19))
     args = parser.parse_args()
     if not (args.teacher or args.teacher_dir or args.katago):
         parser.error("one of --teacher, --teacher-dir or --katago is required")

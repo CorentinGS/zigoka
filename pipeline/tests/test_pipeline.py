@@ -97,3 +97,69 @@ def test_validator_rejects_bad_format(tmp_path):
     manifest_path.write_text(json.dumps(manifest))
     with __import__("pytest").raises(ValueError):
         validate_model_dir(tmp_path)
+
+
+def test_architecture_presets_and_19x19_round_trip(tmp_path):
+    import pathlib
+
+    from go_pipeline.model import MOKA_V2, Architecture, preset
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    assert MokaNet(MOKA_V2).parameter_count() == 244_529
+    v2 = import_model(root / "vendor" / "moka-v2" / "model")
+    assert v2.arch == MOKA_V2
+    arch = preset("v2", board_size=19)
+    assert Architecture.from_manifest(arch.to_manifest()) == arch
+    torch.manual_seed(1)
+    model = MokaNet(arch).eval()
+    manifest = export_model(model, tmp_path)
+    assert manifest["architecture"]["boardSize"] == 19
+    assert manifest["architecture"]["policyMoveCount"] == 362
+    assert tuple(manifest["tensors"]["policy.linear.weight"]["shape"]) == (362, 4 * 361)
+    assert validate_model_dir(tmp_path)["boardSize"] == 19
+    restored = import_model(tmp_path).eval()
+    assert restored.arch == arch
+    logits, value = restored(torch.zeros(2, 12, 19, 19))
+    assert logits.shape == (2, 362) and value.shape == (2,)
+
+
+def test_manifest_architecture_validation_mirrors_zig():
+    import pytest
+
+    from go_pipeline.model import MOKA_V1, Architecture
+
+    good = MOKA_V1.to_manifest()
+    for key, value in [("policyMoveCount", 81), ("residualBlockKind", "standard"), ("inputPlaneCount", 13),
+                       ("globalResidualHiddenChannelCount", 0), ("trunkChannelCount", 0)]:
+        bad = dict(good, **{key: value})
+        with pytest.raises(ValueError):
+            Architecture.from_manifest(bad)
+    with pytest.raises(ValueError):
+        Architecture.from_manifest({k: v for k, v in good.items() if k != "boardSize"})
+
+
+def test_legacy_checkpoint_loads_as_v1(tmp_path):
+    from go_pipeline.model import MOKA_V1, load_checkpoint
+
+    torch.manual_seed(2)
+    model = MokaNet()
+    torch.save({"state_dict": model.state_dict(), "meta": {}}, tmp_path / "old.pt")
+    assert load_checkpoint(str(tmp_path / "old.pt"), torch.device("cpu")).arch == MOKA_V1
+
+
+def test_sample_legal_move_rejects_illegal_and_respects_min_pass():
+    from go_pipeline.board import GameState, sample_legal_move
+
+    state = GameState(size=19)
+    rng = np.random.default_rng(0)
+    probs = np.zeros(362)
+    probs[361] = 0.9  # pass, not allowed before move 89
+    probs[0] = 0.1
+    move, nxt = sample_legal_move(state, probs, rng)
+    assert move == 0 and nxt.board[0] == 1
+    state = GameState(size=19)
+    state.board[1] = state.board[19] = -1  # point 0 is suicide for Black
+    probs = np.zeros(362)
+    probs[0], probs[40] = 0.99, 0.01
+    move, _ = sample_legal_move(state, probs, rng)
+    assert move == 40
