@@ -185,9 +185,8 @@ Moka (`force-zig-v2.md`).
 
 Commandes : `go-selfplay --positions 250000 --games-in-flight 64
 --shard-rows 5000 --seed 2` vers `data/pilot-19` (non versionné), puis
-quatre entraînements v2 d'environ 2 M d'échantillons chacun. La
-validation est fixe : les deux derniers shards, 6 559 positions de
-19 parties, jamais vues par aucun entraînement.
+quatre entraînements v2 d'environ 2 M d'échantillons chacun, et un jeu de
+test produit après coup.
 
 **Auto-jeu.**
 
@@ -210,50 +209,59 @@ validation est fixe : les deux derniers shards, 6 559 positions de
     échelle.
 
 **Entraînements.** Lots de 256, bf16, AdamW à 1e-3 sans weight decay,
-cosinus, tronc v2 (758 889 paramètres). Le KL est l'entropie croisée de
-la politique moins l'entropie de la cible (1,777 sur la validation).
-Valeur : MSE contre la valeur du professeur seule (prédire 0 donne
-0,596), et sa corrélation. Snapshot INT8, meilleure époque :
+cosinus, tronc v2 (758 889 paramètres). La validation des entraînements
+(les deux derniers shards) s'est révélée biaisée : ce sont les 19 parties
+encore en cours quand l'auto-jeu a cessé d'en lancer, toutes finies par
+deux passes, de 345 coups en moyenne. Elle n'a servi qu'à choisir
+l'époque (la dernière ou presque dans les quatre courses).
+
+Les mesures viennent donc d'un jeu de test à part : `go-selfplay
+--positions 20000 --seed 3` vers `data/pilot-19-test`, avec le code
+versionné. Toute partie lancée y est finie : 25 129 positions, 123 parties
+(84 abandons, 39 fins par deux passes, 204 coups en moyenne, comme le
+corpus), aucun échec, aucun repli (`fallbacks` à 0). Le KL est l'entropie
+croisée de la politique moins l'entropie de la cible (1,572). La valeur est
+comparée à celle du professeur seule ; prédire 0 donne une MSE de 0,414.
+Tout est mesuré sur le snapshot INT8, à l'époque retenue :
 
 | Corpus | Parties | Époques | Durée | KL | Accord top-1 | MSE valeur | Corr. valeur |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| quart (12 shards) | 307 | 32 | 539 s | 1,612 | 38,6 % | 0,691 | 0,30 |
-| moitié (24 shards) | 604 | 16 | 499 s | 1,424 | 40,8 % | 0,703 | 0,24 |
-| tout (48 shards) | 1 192 | 8 | 525 s | 1,381 | 42,2 % | 0,639 | 0,31 |
-| tout, tronc de v2 9×9 | 1 192 | 8 | 491 s | **1,254** | **43,8 %** | **0,473** | **0,51** |
+| quart (12 shards) | 307 | 32 | 539 s | 1,539 | 40,6 % | 0,625 | 0,07 |
+| moitié (24 shards) | 604 | 16 | 499 s | 1,410 | 41,9 % | 0,542 | 0,15 |
+| tout (48 shards) | 1 192 | 8 | 525 s | 1,347 | 43,2 % | 0,455 | 0,26 |
+| tout, tronc de v2 9×9 | 1 192 | 8 | 491 s | **1,229** | **45,3 %** | **0,406** | **0,36** |
 
 *   **La politique apprend et profite des données.** À budget
-    d'échantillons égal, le KL passe de 1,61 à 1,38 quand le corpus
+    d'échantillons égal, le KL passe de 1,54 à 1,35 quand le corpus
     quadruple. La course sur tout le corpus n'a pas convergé en
-    8 époques, et l'écart entre entraînement et validation reste faible
-    (44,7 % contre 42,2 % d'accord).
-*   **La tête de valeur ne généralise pas.** Partie de zéro, elle fait
-    moins bien que la constante 0 sur des parties jamais vues : sur les
-    shards 24 à 47 (588 parties, 123 370 positions), le quart et la
-    moitié donnent une MSE de 0,58 et 0,56 contre 0,40 pour la constante,
-    une corrélation de 0,13 et 0,12, le bon signe sur 55 % des positions.
-    Leur MSE de valeur d'entraînement tombe à 0,09 et 0,11 : la couche dense
-    (2 canaux × 361 points → 32 → 1) apprend les parties par cœur dès la
-    deuxième époque. La politique, elle, garde le même niveau sur ces
-    588 parties (KL 1,55 et 1,42, accord 40,6 % et 41,6 %).
-*   **Ce n'est pas un défaut des étiquettes.** Sur ces 588 parties, la
+    8 époques, et l'écart entre entraînement et test reste faible
+    (44,7 % contre 43,2 % d'accord).
+*   **La valeur est en retard.** Partie de zéro, elle fait moins bien que
+    la constante 0 sur les trois corpus. Elle progresse avec les données
+    (corrélation de 0,07 à 0,26), mais sa MSE d'entraînement tombe à
+    0,09, 0,11 et 0,19 : la couche dense (2 canaux × 361 points → 32 → 1)
+    apprend les parties par cœur plus vite qu'elle n'apprend à évaluer.
+    Même constat sur les shards 24 à 47, jamais vus par le quart ni par la
+    moitié (588 parties) : corrélation 0,13 et 0,12.
+*   **Ce n'est pas un défaut des étiquettes.** Sur le jeu de test, la
     propriété du professeur vaut +0,71 sous les pierres du joueur au
     trait et −0,71 sous celles de l'adversaire, dans le bon sens pour
     99,5 % des positions : features et réponses ont la même perspective.
 *   **Le tronc apprend le territoire.** La tête auxiliaire de propriété
-    généralise sur ces parties : MSE 0,071 contre 0,451 pour la constante.
-    Sa somme, komi compris, suit mieux la valeur du professeur que la
-    tête de valeur elle-même (corrélation 0,31 contre 0,12).
+    généralise : MSE de 0,070 (tout) et 0,050 (départ à chaud) contre
+    0,442 pour la constante. Sa somme, komi compris, suit mieux la valeur
+    du professeur que la tête de valeur elle-même (corrélation 0,37
+    contre 0,26 ; 0,43 contre 0,36 au départ à chaud).
 *   **Le tronc de v2 9×9 aide.** Le départ à chaud est en tête sur toutes
-    les mesures, et c'est la seule course dont la valeur bat la
-    constante. Sa valeur sur-apprend encore (MSE d'entraînement 0,17).
+    les mesures. C'est la seule course dont la valeur rejoint la
+    constante, sans la battre nettement ; elle sur-apprend encore (MSE
+    d'entraînement 0,17).
 *   **Débit :** 3 690 positions/s sur le chemin déterministe (le quart),
     environ 4 050 sur l'autre. Le chemin déterministe tourne donc sur la
     Radeon ; sa reproductibilité au bit près n'est pas vérifiée.
-*   La validation ne compte que 19 parties : les écarts de valeur entre
-    les trois courses parties de zéro sont dans le bruit. Celui du départ à
-    chaud est plus net (corrélation 0,51 contre 0,24 à 0,31), mais reste à
-    confirmer sur plus de parties.
+*   Le jeu de test compte 123 parties ; les positions d'une même partie
+    sont corrélées. Les écarts de politique sont réguliers d'une course à
+    l'autre ; ceux de valeur sont à confirmer sur plus de parties.
 
 **Ce que le pilote dit pour la suite.**
 
@@ -261,18 +269,25 @@ Valeur : MSE contre la valeur du professeur seule (prédire 0 donne
 2.  La politique justifie un corpus plus grand : environ 2 h 15 par
     million de positions avec ce professeur.
 3.  La valeur est le risque. Avec 1 200 parties, la tête dense de 19×19
-    retient les parties au lieu d'évaluer la position. Avant un corpus de
-    dix fois plus de parties, essayer à coût nul : weight decay, moins de
-    positions par partie, poids de la valeur. Si elle ne généralise
-    toujours pas, c'est l'argument de la phase 2 : une tête de valeur
-    indépendante de N, par pooling comme celle de KataGo.
+    retient les parties plus vite qu'elle n'évalue la position, et le
+    tronc en sait plus qu'elle (la somme de la propriété la devance).
+    Avant un corpus de dix fois plus de parties, essayer à coût nul :
+    weight decay, moins de positions par partie, poids de la valeur. Si
+    elle reste derrière la propriété, c'est l'argument de la phase 2 : une
+    tête de valeur indépendante de N, par pooling comme celle de KataGo.
 4.  Aucun critère de match n'est évalué : `match/katago.ts` est encore
-    limité au 9×9 (voir Future Improvements).
+    limité au 9×9 (voir Future Improvements), et le rang cible du profil
+    human SL n'est pas fixé.
+5.  Le jeu de validation d'un prochain entraînement doit être produit à
+    part, comme ce jeu de test, et non pris dans les derniers shards.
 
 ### Moteur
 
-`pnpm test` passe (190 tests), dont la parité de l'inférence, la mémoire
-constante et la recherche de `synthetic-19-v2`.
+`pnpm check:all` passe : 190 tests, dont la parité de l'inférence, la
+mémoire constante et la recherche de `synthetic-19-v2`, et 16 tests e2e.
+Le modèle et ses données de référence se régénèrent octet pour octet
+(`pnpm models:check`, `pnpm oracle:check`). En 19×19, l'oracle ne produit
+qu'un jeu de validation : la parité Python saute le jeu de calibration.
 
 Relevé du 2026-11-10 (`pnpm bench --model synthetic-19-v2`, puis
 `--model synthetic-19` ; fichiers `bench/results/2026-11-10T12-51-19-488Z.json`
@@ -341,7 +356,7 @@ ms, à `count = 1` :
     pilote) ; deux courses identiques n'ont pas été comparées au bit près.
 *   **Phase 2.** Têtes convolutives indépendantes de N (environ 250 Ko au
     lieu de 776 Ko) et plans d'échelle dans l'encodage, côté `rules.zig` et
-    côté Python. Le pilote y ajoute un argument : la tête de valeur dense
-    ne généralise pas avec 1 200 parties.
+    côté Python. Le pilote y ajoute un argument : avec 1 200 parties, la
+    tête de valeur dense atteint à peine la constante 0.
 *   **Licence.** Les réseaux kata1 sont sous une licence de type MIT dont la
     notice est à reproduire ; elle ne dit rien de la distillation.

@@ -3,8 +3,8 @@ through torch's HIP build, which answers to the same `cuda` device
 type), CPU otherwise.
 
 The same code path runs on all three. On CUDA we enable TF32 matmuls, cuDNN
-benchmarking (unless deterministic mode is requested), pinned-memory
-loaders and automatic mixed precision.
+benchmarking (neither under ROCm nor in deterministic mode) and automatic
+mixed precision.
 """
 from __future__ import annotations
 

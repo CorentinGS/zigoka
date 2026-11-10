@@ -31,6 +31,10 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 uv run --no-sync python -m go_pipeline.device   # must print the Radeon
 ```
 
+With a ROCm or CPU torch, run every command below with `uv run --no-sync`:
+a plain `uv run` syncs the project and replaces torch with the CUDA build
+pinned in `pyproject.toml` (`uv sync --dry-run` shows it).
+
 CPU-only (e.g. this dev machine, which has no NVIDIA GPU):
 
 ```sh
@@ -53,7 +57,7 @@ uv run go-generate --katago teachers/katago-b6c96.onnx --positions 50000 \
   --output data/distillation.npz --device auto
 
 # 2. Train. --device auto picks CUDA when present (AMP bf16/fp16, TF32,
-#    pinned loaders); deterministic by default (--non-deterministic for
+#    data kept on the GPU when it fits); deterministic by default (--non-deterministic for
 #    speed). Checkpoint selection scores the INT8-quantized snapshot, i.e.
 #    the shipped artifact, not the float weights. Warm start with
 #    --init-dir or --init-checkpoint.
@@ -83,23 +87,24 @@ into `~/.cache/zigoka-katago/rocm/`, or point `KATAGO_ROCM` at it).
 # KataGo plays itself under Moka's rules (no pass before move 89, 540
 # moves at most); every position keeps the raw policy and value, a quarter
 # of them a 64-visit search. Compact shards: about 2.4 KB per position.
-uv run go-selfplay --katago katago/katago-rocm \
+uv run --no-sync go-selfplay --katago katago/katago-rocm \
   --model ~/.cache/zigoka-katago/nets/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz \
   --out data/selfplay-19 --board-size 19 --positions 1000000
 
 # Train on every shard of the directory. --arch v2 at the shards' board
 # size, or a warm start: a 9×9 checkpoint or model keeps its trunk and
 # gets new 19×19 heads.
-uv run go-train --data data/selfplay-19 --arch v2 --epochs 20 --out checkpoints/moka-19.pt
-uv run go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/moka-19
+uv run --no-sync go-train --data data/selfplay-19 --arch v2 --epochs 20 --out checkpoints/moka-19.pt
+uv run --no-sync go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/moka-19
 ```
 
 Measured on a 16 GB gfx1030 Radeon (RX 6800 / 6900 XT family): self-play
 about 125 positions/s once warm, 253 000 positions in 35 minutes (KataGo
 ROCm, b18c384nbt; the OpenCL build is 4× slower), training Moka v2 at
-19×19 about 4 000 positions/s in bf16. KataGo's memory grows while its NN
-cache (2^20 entries) fills: 4.9 GB after those 35 minutes, still growing
-by 17 MB a minute. The
+19×19 about 4 000 positions/s in bf16. KataGo's memory reached 4.9 GB
+after those 35 minutes, its growth slowing to 17 MB a minute: the curve of
+its NN cache (2^20 entries) filling, though the ceiling is not measured.
+The
 shards' format is in `shards.py`, the targets the trainer derives from
 them in `dataset.load_training_data`.
 
