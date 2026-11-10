@@ -130,7 +130,11 @@ proposition :
 *   poids sous le budget (environ 800 Ko) ;
 *   parité Zig / Moka ;
 *   200 parties à 1 s contre un profil human SL de KataGo, au rang cible
-    fixé après le pilote ;
+    fixé après le pilote. Ce rang est `rank_5k`, où le pilote fait 52,5 %
+    [45,6 ; 59,4] (voir Banc 19×19). Un candidat doit y faire au moins
+    60 % (+70 Elo contre le profil, environ +50 sur le pilote), au-dessus
+    de l'intervalle du pilote. Au-delà d'environ 75 %, le rang de
+    référence passe au profil suivant (`rank_3k`) ;
 *   au moins 55 victoires sur 100 contre la version précédente.
 
 L'arbitre est le score de KataGo, pas le retrait des pierres mortes de
@@ -275,11 +279,119 @@ Tout est mesuré sur le snapshot INT8, à l'époque retenue :
     weight decay, moins de positions par partie, poids de la valeur. Si
     elle reste derrière la propriété, c'est l'argument de la phase 2 : une
     tête de valeur indépendante de N, par pooling comme celle de KataGo.
-4.  Aucun critère de match n'est évalué : `match/katago.ts` est encore
-    limité au 9×9 (voir Future Improvements), et le rang cible du profil
-    human SL n'est pas fixé.
+    Le weight decay et les poids sont essayés (voir Réglages de la
+    valeur) ; moins de positions par partie ne l'est pas.
+4.  Le banc 19×19 est venu après le pilote (voir Banc 19×19).
 5.  Le jeu de validation d'un prochain entraînement doit être produit à
     part, comme ce jeu de test, et non pris dans les derniers shards.
+
+### Banc 19×19
+
+**Outillage.**
+
+*   **`match/dist/match-19.js`** (`pnpm match:19`) est le banc 9×9
+    recompilé par esbuild avec `oracle/constants-19.ts` à la place des
+    constantes de Moka. Il garde les mêmes joueurs, les mêmes ouvertures de
+    4 coups tirées de la politique, jouées deux fois en échangeant les
+    couleurs, et le même arbitrage par KataGo. Il n'a pas de modèle par
+    défaut ; `match.js` reste en 9×9 avec Moka par défaut.
+*   **Modèles locaux.** Un export du pipeline se joue sans être versionné.
+    Il va dans `models/local/<id>/`, ignoré par git, puis
+    `zig build models wasm search -Dlocal-model=<id>:synthetic-19-v2` le
+    construit avec la mémoire du modèle enregistré dans `zig-out/local/`.
+    Les scripts et les tests qui listent `zig-out/models/` ne le voient
+    pas.
+*   **Contrôle de parité.** Avant chaque match, chaque moteur Zig est
+    comparé au runtime de Moka sur les 9 premières positions de la ligne
+    gloutonne. Le match s'arrête si un logit diffère de plus de 0,05 ou la
+    valeur de plus de 0,01.
+*   **Adversaire.** KataGo 1.18.1 ROCm, réseau human SL
+    `b18c384nbt-humanv0` avec `match/katago-human.cfg`. Les 16 visites du
+    réseau b18 ne décident que des passes. Chaque processus prend environ
+    1 Go de RAM.
+*   **Une tâche GPU à la fois.** Huit processus KataGo ROCm à côté d'un
+    entraînement saturent les files matérielles de la carte (« Runlist is
+    getting oversubscribed » dans le journal du noyau). Des fautes de page
+    GPU tuent ensuite KataGo puis l'entraînement. Six processus à côté d'un
+    entraînement sont passés, mais l'entraînement tombe alors de 3 600 à
+    1 500 à 2 000 positions/s.
+
+**Le pilote contre les profils humains.** Le modèle est `pilot-all-warm`
+(départ à chaud du tronc de v2 9×9), exporté en `moka-19-pilot`. Son sha256
+est `7258fc2109054ccb35f1d8eec6d1b2e181c765ccbe8eef3c1f44f019c38927eb`.
+`zig-policy` joue le meilleur coup de la politique brute ; `zig-reuse`
+cherche 1 s par coup en gardant l'arbre.
+
+| Joueur | Profil | Parties | Score du pilote [IC 95 %] |
+|---|---|---:|---|
+| `zig-policy` | `rank_20k` | 2 | 2 victoires (+76 et +210) |
+| `zig-policy` | `rank_10k` | 20 | 77,5 % [59,2 ; 95,8] |
+| `zig-policy` | `rank_5k` | 20 | 20,0 % [2,5 ; 37,5] |
+| `zig-policy` | `rank_1k` | 20 | 0 % |
+| `zig-reuse`, 1 s | `rank_5k` | 20 | 52,5 % [30,6 ; 74,4] |
+| `zig-policy` | `rank_5k` | 200 | **18,5 % [13,1 ; 23,9]** |
+| `zig-reuse`, 1 s | `rank_5k` | 200 | **52,5 % [45,6 ; 59,4]** |
+
+Les deux lignes de 200 parties sont la référence (6 matchs en parallèle,
+sans entraînement à côté). Les fichiers de résultats restent dans
+`bench/results/`, non versionnés.
+
+*   **La politique seule** se place entre `rank_10k` et `rank_5k` :
+    −258 Elo [−328 ; −201] contre `rank_5k`.
+*   **La recherche aide déjà**, malgré une tête de valeur à peine
+    meilleure que la constante : de 18,5 % à 52,5 %, environ +275 Elo.
+    `zig-reuse` fait 470 visites par coup à 1 s, soit 2,1 ms par visite
+    arbre compris (environ 400 avec 8 matchs en parallèle).
+*   **`rank_5k` devient le rang de référence** : le pilote y est à
+    l'équilibre, loin des deux bornes, si bien qu'un progrès comme un
+    recul s'y mesure (voir Critères).
+*   **Arbitrage.** Avec la politique seule, KataGo et le retrait des
+    pierres mortes de Moka désignent le même vainqueur dans 197 parties
+    sur 200. Avec la recherche, ils divergent dans 19 parties sur 200, et
+    toujours au profit de Zig selon Moka : 17 défaites et une nulle selon
+    KataGo sont des victoires selon Moka, une défaite est une nulle. Dans
+    15 de ces parties, c'est Zig qui passe en dernier : la recherche
+    répond à un passe dans une position que l'estimation des pierres
+    mortes de Moka juge gagnée et que KataGo compte perdue, avec un écart
+    de 4 à 69 points. Compté par Moka, `zig-reuse` ferait 61,5 %. Une
+    règle de passe plus prudente en 19×19 est un gain possible pour la
+    recherche, sans toucher au modèle.
+
+### Réglages de la valeur
+
+Les essais « à coût nul » du pilote (point 3), sur le même corpus de
+48 shards. Chaque course reprend la recette de `pilot-all-warm` (départ à
+chaud, 8 époques, lots de 256, AdamW à 1e-3, graine 1) et change un seul
+réglage. Les défauts sont : weight decay 0, cible de valeur à 30 % le
+résultat de la partie et 70 % le professeur (`--outcome-mix 0.3`), poids
+de la valeur 1, poids de la propriété 0,5. La validation, qui choisit
+l'époque, est un jeu produit à part (`go-selfplay --positions 20000
+--seed 4` vers `data/pilot-19-val`, 25 334 positions). Les mesures sont
+celles du jeu de test du pilote, sur le snapshot INT8 :
+
+| Course | Réglage | KL | Accord top-1 | MSE valeur | Corr. valeur | Signe |
+|---|---|---:|---:|---:|---:|---:|
+| base | aucun | 1,229 | 45,3 % | 0,406 | 0,355 | 58,9 % |
+| wd01 | `--weight-decay 0.1` | **1,210** | **46,1 %** | **0,381** | 0,397 | **60,4 %** |
+| om0 | `--outcome-mix 0` | 1,222 | 45,2 % | 0,384 | 0,391 | **60,4 %** |
+| vw05 | `--value-weight 0.5` | 1,219 | 45,6 % | 0,399 | 0,366 | 58,7 % |
+| own15 | `--ownership-weight 1.5` | 1,247 | 45,0 % | 0,385 | **0,404** | 60,1 % |
+
+*   **Reproductibilité.** La course de base redonne les poids de
+    `pilot-all-warm` au bit près (écart maximal 0,0), sur le chemin non
+    déterministe et avec un autre jeu de validation : la même époque est
+    retenue. Refaire une course ne mesure donc pas le bruit ; il faut
+    changer de graine.
+*   **Le weight decay est le meilleur réglage** : il améliore la
+    politique et la valeur à la fois. Retirer le résultat de la partie de
+    la cible de valeur aide autant la valeur, sans effet sur la
+    politique. Le poids de la propriété aide la valeur mais coûte à la
+    politique.
+*   **La valeur reste derrière la propriété.** Aucune course ne dépasse
+    la corrélation de 0,43 de la somme de la propriété de
+    `pilot-all-warm`.
+*   Le bruit d'une graine à l'autre n'est pas encore mesuré. Les écarts
+    de valeur (0,02 à 0,03 de MSE) sont à confirmer.
 
 ### Moteur
 
@@ -344,8 +456,11 @@ ms, à `count = 1` :
 *   **Corpus on-policy.** v2 a montré que l'auto-jeu de b18 seul ne suffit
     pas (19/100 contre b6c96, 50/100 avec le corpus on-policy). Il faut le
     même en 19×19 : l'élève contre des profils human SL, b18 qui étiquette.
-*   **`match/katago.ts` paramétré par N.** Il prend encore `GO_BOARD_SIZE`
-    des constantes 9×9 de Moka ; les critères de match en dépendent.
+*   **Règle de passe en 19×19.** La recherche répond à un passe dans des
+    positions que l'estimation des pierres mortes de Moka juge mal
+    (19 parties sur 200 contre `rank_5k`, voir Banc 19×19). Ne passer
+    que si cette estimation est sûre, ou continuer à jouer tant qu'un
+    groupe reste incertain, se mesure sans réentraîner.
 *   **Redémarrage de KataGo par shard.** Prévu par la proposition, pas
     implémenté : pendant le pilote, la mémoire suit le remplissage du cache
     du réseau et ralentit vers un plafond (voir Pilote). À revoir si une
