@@ -1,5 +1,8 @@
 import {
   GO_BLACK_COLOR,
+  GO_BOARD_AREA,
+  GO_BOARD_SIZE,
+  GO_EMPTY_COLOR,
   GO_MINIMUM_PASS_MOVE_COUNT,
   GO_PASS_MOVE,
 } from "../vendor/moka/src/constants.ts";
@@ -8,6 +11,7 @@ import {
   getAreaScore,
   getAutomaticallyDeadMoves,
   getLegalMoves,
+  getPassAliveArea,
   isGameOver,
   playMove,
   removeDeadStones,
@@ -53,9 +57,34 @@ const getCandidateMoves = (state: GoGameState) => {
   return moves.length > 0 ? moves : [GO_PASS_MOVE];
 };
 
+/** Moka's dead stones without the capture aftermath: the stones inside the opponent's pass-alive area. */
+const getPassDeadMoves = (state: GoGameState) => {
+  const passAliveArea = getPassAliveArea(state.board);
+  const moves: number[] = [];
+
+  for (let move = 0; move < GO_BOARD_AREA; move += 1) {
+    if (state.board[move] !== GO_EMPTY_COLOR && passAliveArea[move] === -state.board[move]) {
+      moves.push(move);
+    }
+  }
+
+  return moves;
+};
+
+/**
+ * The score the search gives a finished game, from Black's side. At 9×9, Moka's final score. At 19×19,
+ * only the pass-dead stones are removed: Moka's capture aftermath also takes every chain left in atari,
+ * so the search passed instead of playing captures that the final score then counted.
+ */
+const getSearchScore = (state: GoGameState) => {
+  const deadMoves = GO_BOARD_SIZE === 19 ? getPassDeadMoves(state) : getAutomaticallyDeadMoves(state);
+
+  return getAreaScore(removeDeadStones(state, deadMoves));
+};
+
+/** Sign of the final area score, for the player to move. */
 const getFinalValue = (state: GoGameState) => {
-  const score = getAreaScore(removeDeadStones(state, getAutomaticallyDeadMoves(state)));
-  const blackResult = Math.sign(score);
+  const blackResult = Math.sign(getSearchScore(state));
 
   return state.nextColor === GO_BLACK_COLOR ? blackResult : -blackResult;
 };
@@ -248,5 +277,5 @@ const search = (
   };
 };
 
-export { createSearchTree, getCandidateMoves, search };
+export { createSearchTree, getCandidateMoves, getSearchScore, search };
 export type { Evaluate, SearchLimits, SearchResult, SearchTree };

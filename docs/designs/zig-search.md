@@ -70,7 +70,8 @@ Ce schéma ne montre que le chemin d'une recherche. La liste complète des
 exports de `src/search_exports.zig` est figée par
 `tests/wasm-checks.test.mjs` : ceux d'`infer.wasm`, `moves_ptr`, les règles
 (`rules_play`, `rules_legal_moves`, `rules_encode`, `rules_is_game_over`,
-`rules_area_score`, `rules_dead_stones`), et la lecture de l'arbre
+`rules_area_score`, `rules_dead_stones`), le score de fin de partie de la
+recherche (`search_final_score`), et la lecture de l'arbre
 (`search_visits`, `search_nodes`, `search_node_capacity`,
 `search_child_count`, `search_child_move`, `search_child_visits`). Les
 fonctions de recherche rendent un `Status` (`src/search/tree.zig`) : `ok`,
@@ -102,7 +103,9 @@ fonctions de recherche rendent un `Status` (`src/search/tree.zig`) : `ok`,
     `match/search.ts` : exploration 1,5, première visite à la valeur du nœud
     moins 0,2, priors par softmax en f64 sur les coups candidats, pas de passe
     avant `MIN_PASS_MOVE_COUNT` sauf s'il est le seul coup, valeur terminale au
-    signe du score après retrait des pierres mortes. Nœuds et arêtes vivent
+    signe du score après retrait des pierres mortes. En 19×19, seules les
+    pierres mortes sans passe sont retirées, sans les captures que Moka joue
+    après la partie (`search_final_score`, voir `moka-19.md`). Nœuds et arêtes vivent
     dans des tableaux statiques dont la taille vient de `build.zig` :
 
     | Modèle | Nœuds | Arêtes | Mémoire de `search.wasm` |

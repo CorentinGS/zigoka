@@ -30,6 +30,7 @@ interface SearchExports extends InferExports {
   rules_is_game_over: () => number;
   rules_area_score: () => number;
   rules_dead_stones: () => number;
+  search_final_score: () => number;
   search_start: (reuse: number) => number;
   search_reused: () => number;
   search_run: (targetVisits: number, batch: number) => number;

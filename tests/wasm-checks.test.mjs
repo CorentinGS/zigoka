@@ -26,6 +26,7 @@ const ARTIFACTS = [
       "search_child_count",
       "search_child_move",
       "search_child_visits",
+      "search_final_score",
       "search_node_capacity",
       "search_nodes",
       "search_reused",

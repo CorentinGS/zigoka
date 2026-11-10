@@ -78,9 +78,22 @@ fn features(slot: usize) *[R.FEATURES]f32 {
     return buffers.input[slot * buffers.INPUT_STRIDE ..][0..R.FEATURES];
 }
 
+/// The score the search gives a finished game, from Black's side. At 9×9, Moka's final score. At
+/// 19×19, only the pass-dead stones are removed: Moka's capture aftermath also takes every chain left
+/// in atari, so the search passed instead of playing captures that the final score then counted.
+pub fn searchScore(position: *const R.Position) i32 {
+    if (R.SIZE != 19) return R.finalScore(position);
+    const area = R.passAliveArea(&position.board);
+    var board = position.board;
+    for (&board, area) |*stone, owner| {
+        if (stone.* != rules.EMPTY and owner == -stone.*) stone.* = rules.EMPTY;
+    }
+    return R.areaScore(&board);
+}
+
 /// Sign of the final area score, for the player to move.
 fn finalValue(position: *const R.Position) f64 {
-    const black_result: f64 = std.math.sign(@as(f64, @floatFromInt(R.finalScore(position))));
+    const black_result: f64 = std.math.sign(@as(f64, @floatFromInt(searchScore(position))));
     return if (position.next_color == rules.BLACK) black_result else -black_result;
 }
 

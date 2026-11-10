@@ -72,6 +72,11 @@ export fn rules_dead_stones() u32 {
     return count;
 }
 
+/// The score the search gives the position if the game ends there, from Black's side.
+export fn search_final_score() i32 {
+    return tree.searchScore(&position);
+}
+
 /// Starts a search from the position; `reuse` != 0 keeps the matching subtree of the last search.
 export fn search_start(reuse: u32) Status {
     if (!weights.loaded) return .weights_not_loaded;

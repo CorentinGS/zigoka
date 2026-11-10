@@ -153,6 +153,7 @@ const checkPosition = (
     const expected = [...rules.getAutomaticallyDeadMoves(state)].sort((left, right) => left - right);
 
     assert.deepEqual(readMoves(exports, exports.rules_dead_stones()), expected, `dead stones, ${label}`);
+    assert.equal(exports.search_final_score(), rules.getSearchScore(state), `search score, ${label}`);
   }
 };
 
@@ -310,5 +311,36 @@ for (const model of MODELS) {
     assert.ok(result.poolFull);
     assert.ok(result.visits > 1000);
     assert.ok(searchEngine.exports.search_nodes() <= searchEngine.exports.search_node_capacity());
+  });
+
+  test(`${model.id}: at 19×19 the search does not count Moka's capture aftermath`, async (context) => {
+    const rules = await model.loadRules();
+    const state = rules.createGameState();
+    const size = Math.sqrt(state.board.length);
+
+    if (size !== 19) {
+      context.skip("the search keeps Moka's final score at 9×9");
+      return;
+    }
+
+    const { searchEngine } = await loadEngines(model.id);
+
+    // Black wall on column 1, White wall on column 2, and a White stone in atari in the corner of
+    // Black's side. White has just passed. Nothing is pass-dead, but the aftermath captures the stone.
+    for (let row = 0; row < size; row += 1) {
+      state.board[row * size + 1] = 1;
+      state.board[row * size + 2] = -1;
+    }
+    state.board[0] = -1;
+    state.moveCount = 200;
+    state.moveHistory = [size * 3 + 5, state.board.length];
+    state.consecutivePassCount = 1;
+
+    assert.deepEqual(rules.getAutomaticallyDeadMoves(state), [0]);
+    assert.equal(rules.getAreaScore(state), 19 - 20 - 16 * 19 - 7);
+    assert.equal(rules.getSearchScore(state), rules.getAreaScore(state));
+
+    writePosition(searchEngine.exports, state);
+    assert.equal(searchEngine.exports.search_final_score(), rules.getSearchScore(state));
   });
 }
