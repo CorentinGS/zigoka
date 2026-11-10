@@ -70,6 +70,7 @@ def test_selfplay_writes_consistent_shards(tmp_path: pathlib.Path, stand_in: pat
                             full_fraction=0.5, resign_fraction=0.5, seed=3, log_every=1e9)
     summary = selfplay(config)
     assert summary["failures"] == 0 and summary["positions"] >= 300
+    assert "fallbacks" in summary
     assert set(summary["ends"]) == {"resign", "passes"}
 
     data, size = load_shards([str(out)])
@@ -119,8 +120,9 @@ def test_choose_move_never_passes_early_or_plays_illegal() -> None:
     rng = np.random.default_rng(0)
     state = GameState(size=9)
     spec = state.spec
-    move, _ = choose_move(state, _label(9, spec.pass_move), rng, config)
-    assert move != spec.pass_move  # move 0 < min pass move
+    stats = {}
+    move, _ = choose_move(state, _label(9, spec.pass_move), rng, config, stats)
+    assert move != spec.pass_move and stats == {"fallbacks": 1}  # move 0 < min pass move
     occupied = play_move(state, 40)
     visits = np.zeros(spec.move_count, dtype=np.float32)
     visits[40], visits[41] = 0.9, 0.1

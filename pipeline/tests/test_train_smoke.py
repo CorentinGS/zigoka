@@ -137,3 +137,15 @@ def test_warm_start_from_9x9_keeps_the_trunk_at_19x19(tmp_path):
         if is_trunk_key(key):
             torch.testing.assert_close(value, before[key])  # lr 0: the trunk is the 9×9 one
     assert after["policy_linear.weight"].shape == (362, 4 * 361)
+
+
+def test_fixed_validation_set_and_kl_metrics(tmp_path):
+    train_shard = _write_shards(tmp_path / "train", 9, games=4, seed=1)
+    val_shard = _write_shards(tmp_path / "val", 9, games=2, seed=2)
+    out = tmp_path / "student.pt"
+    train(TrainConfig(data=[str(train_shard)], val_data=[str(val_shard)], out=str(out), epochs=1, batch_size=16,
+                      device="cpu", amp=False))
+    import json
+    epoch = json.loads((tmp_path / "student.pt.history.json").read_text())[0]
+    assert epoch["val_int8"]["soft"] >= epoch["val_int8"]["target_entropy"] - 1e-4  # KL >= 0
+    assert epoch["val_fp"]["target_entropy"] > 0

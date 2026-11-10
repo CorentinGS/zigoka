@@ -48,6 +48,7 @@ from .shards import BINARY_PLANES, OWNERSHIP_SCALE
 @dataclass
 class TrainConfig:
     data: list[str] = field(default_factory=list)
+    val_data: list[str] = field(default_factory=list)
     out: str = "checkpoints/student.pt"
     init_checkpoint: str | None = None
     init_dir: str | None = None
@@ -75,6 +76,8 @@ class TrainConfig:
     def __post_init__(self) -> None:
         if isinstance(self.data, str):
             self.data = [self.data]
+        if isinstance(self.val_data, str):
+            self.val_data = [self.val_data]
 
 
 class AuxHeads(nn.Module):
@@ -175,7 +178,10 @@ def compute_losses(model: MokaNet, aux: AuxHeads | None, batch: dict[str, torch.
     hard = nn.functional.nll_loss(log_probs, policy.argmax(1))
     policy_loss = (1 - config.hard_mix) * soft + config.hard_mix * hard
     value_loss = nn.functional.mse_loss(value.float(), batch["value"])
+    # The soft CE minus the target's entropy is the KL to the teacher.
+    entropy = -(policy * torch.log(policy.clamp(min=1e-12))).sum(1).mean()
     out = {"policy": policy_loss, "value": value_loss, "main": policy_loss + config.value_weight * value_loss,
+           "soft": soft, "target_entropy": entropy,
            "agree": (logits.argmax(1) == policy.argmax(1)).float().mean(),
            "value_mae": (value.float() - batch["value"]).abs().mean()}
     total = out["main"]
@@ -265,8 +271,17 @@ def train(config: TrainConfig) -> Path:
     generator = torch.Generator().manual_seed(config.seed)
 
     data = load_training_data(config.data, config.visits_mix, config.outcome_mix, config.score_scale)
-    train_idx, val_idx = split_by_game({"game_id": data.game_id}, config.val_fraction, config.seed)
     store = Store(data, _store_device(config, data, device))
+    if config.val_data:
+        # A fixed validation set: the whole of `data` trains.
+        val_data = load_training_data(config.val_data, config.visits_mix, config.outcome_mix, config.score_scale)
+        if val_data.size != data.size:
+            raise ValueError(f"validation data is {val_data.size}×{val_data.size}, training data {data.size}×{data.size}")
+        val_store = Store(val_data, _store_device(config, val_data, device))
+        train_idx, val_idx = np.arange(len(data)), np.arange(len(val_data))
+    else:
+        train_idx, val_idx = split_by_game({"game_id": data.game_id}, config.val_fraction, config.seed)
+        val_store = store
     perms = symmetry_permutations(data.size).to(device)
     model, aux, origin = _build_model(config, data.size, device)
     if not store.has_aux:
@@ -283,7 +298,7 @@ def train(config: TrainConfig) -> Path:
 
     out = Path(config.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    eval_idx = val_idx if len(val_idx) else train_idx
+    eval_store, eval_idx = (val_store, val_idx) if len(val_idx) else (store, train_idx)
     best_artifact_loss = float("inf")
     history = []
     for epoch in range(1, config.epochs + 1):
@@ -310,13 +325,14 @@ def train(config: TrainConfig) -> Path:
         if not math.isfinite(train_metrics["total"]):
             raise FloatingPointError(f"epoch {epoch}: training loss is {train_metrics['total']}")
         seconds = time.monotonic() - started
-        fp_metrics = _evaluate(model, aux, store, eval_idx, device, dtype, config)
-        artifact_metrics = _evaluate(quantized_snapshot(model), None, store, eval_idx, device, None, config)
+        fp_metrics = _evaluate(model, aux, eval_store, eval_idx, device, dtype, config)
+        artifact_metrics = _evaluate(quantized_snapshot(model), None, eval_store, eval_idx, device, None, config)
         history.append({"epoch": epoch, "lr": scheduler.get_last_lr()[0], "seconds": seconds,
                         "train": train_metrics, "val_fp": fp_metrics, "val_int8": artifact_metrics})
         print(f"epoch {epoch}: {len(order) / seconds:.0f} pos/s | train {train_metrics['total']:.4f} "
               f"| val fp {fp_metrics['main']:.4f} | val int8 {artifact_metrics['main']:.4f} "
-              f"(policy {artifact_metrics['policy']:.4f}, value {artifact_metrics['value']:.4f}) "
+              f"(policy {artifact_metrics['policy']:.4f}, KL {artifact_metrics['soft'] - artifact_metrics['target_entropy']:.4f}, "
+              f"value {artifact_metrics['value']:.4f}) "
               f"agree {artifact_metrics['agree']:.3f} value_mae {artifact_metrics['value_mae']:.4f}", flush=True)
         if artifact_metrics["main"] < best_artifact_loss:
             best_artifact_loss = artifact_metrics["main"]
@@ -332,6 +348,8 @@ def main() -> None:
     defaults = TrainConfig()
     parser = argparse.ArgumentParser(description="Train the student by distillation.")
     parser.add_argument("--data", nargs="+", required=True, help="one .npz, or shard directories / globs")
+    parser.add_argument("--val-data", nargs="+", default=[],
+                        help="a fixed validation set (then --val-fraction is ignored and all of --data trains)")
     parser.add_argument("--out", default=defaults.out)
     parser.add_argument("--init-checkpoint", help="warm start from a .pt checkpoint")
     parser.add_argument("--init-dir", help="warm start from a go-model.json/.bin directory")

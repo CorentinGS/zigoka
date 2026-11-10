@@ -26,8 +26,9 @@ half a point); it goes to the `outcome` field of every row of the game.
 
 Rows go to compact shards (shards.py) of `--shard-rows` rows, written
 when a game ends; games.jsonl beside each shard lists its games. No new
-game starts once the games played and those in flight (at the mean game
-length so far) reach `--positions`; the games in flight finish.
+game starts while the games played and those in flight (at the mean game
+length so far) reach `--positions`; the games in flight finish, and if
+they fall short, new games start again.
 """
 from __future__ import annotations
 
@@ -98,8 +99,10 @@ class Game:
     losing: deque = field(default_factory=deque)  # recent values from Black's perspective
 
 
-def choose_move(state: GameState, label: Label, rng: np.random.Generator, config: SelfplayConfig) -> tuple[int, GameState]:
-    """The move to play after `label`, legal under Moka's rules, and the next state."""
+def choose_move(state: GameState, label: Label, rng: np.random.Generator, config: SelfplayConfig,
+                stats: dict[str, int] | None = None) -> tuple[int, GameState]:
+    """The move to play after `label`, legal under Moka's rules, and the next state.
+    `stats["fallbacks"]` counts the best moves Moka could not play."""
     turn = state.move_count
     if turn < config.opening_moves:
         return sample_legal_move(state, label.policy_raw, rng)
@@ -113,6 +116,8 @@ def choose_move(state: GameState, label: Label, rng: np.random.Generator, config
         if nxt is not None:
             return best, nxt
     # KataGo's best move is not playable for Moka: the best legal one by visits, then by policy.
+    if stats is not None:
+        stats["fallbacks"] = stats.get("fallbacks", 0) + 1
     weights = label.policy_visits if label.policy_visits.sum() > 0 else label.policy_raw
     return sample_legal_move(state, weights, rng, temperature=0.05)
 
@@ -167,6 +172,7 @@ class Selfplay:
         self.full_searches = 0
         self.failures = 0
         self.ends: dict[str, int] = {}
+        self.stats: dict[str, int] = {"fallbacks": 0}
         self.started = time.monotonic()
 
     def _next_shard_index(self) -> int:
@@ -234,7 +240,7 @@ class Selfplay:
         if winner:
             self._finish(game, float(winner), "resign")
             return False
-        _, game.state = choose_move(state, label, self.rng, self.config)
+        _, game.state = choose_move(state, label, self.rng, self.config, self.stats)
         if game.state.is_game_over() or game.state.move_count >= self.spec.max_moves:
             lead_black = label.score_lead * state.next_color
             result = 0.0 if abs(lead_black) < 0.5 else float(np.sign(lead_black))
@@ -242,19 +248,27 @@ class Selfplay:
             return False
         return True
 
+    def _needs_games(self, in_flight: dict[Future, Game]) -> bool:
+        """True while the games played and those in flight, at the mean game
+        length so far, fall short of the target. Games in flight always finish."""
+        mean_length = self.positions / self.games_done if self.games_done else 0.6 * self.spec.area
+        expected = sum(max(len(g.rows), mean_length) for g in in_flight.values())
+        return self.positions + expected < self.config.positions
+
     def _log(self) -> None:
         elapsed = time.monotonic() - self.started
         print(f"{self.positions} positions, {self.games_done} games, {self.positions / max(elapsed, 1e-9):.1f} pos/s, "
-              f"ends {self.ends}, failures {self.failures}", flush=True)
+              f"ends {self.ends}, failures {self.failures}, fallbacks {self.stats['fallbacks']}", flush=True)
 
     def run(self) -> dict:
         in_flight: dict[Future, Game] = {}
-        launching = True
         last_log = time.monotonic()
-        while launching or in_flight:
-            while launching and len(in_flight) < self.config.games_in_flight:
+        while True:
+            while len(in_flight) < self.config.games_in_flight and self._needs_games(in_flight):
                 game = self._new_game()
                 in_flight[self._submit(game)] = game
+            if not in_flight:
+                break
             done, _ = wait(list(in_flight), return_when=FIRST_COMPLETED)
             for future in done:
                 game = in_flight.pop(future)
@@ -265,22 +279,19 @@ class Selfplay:
                         raise
                     self.failures += 1
                     print(f"game {game.game_id} dropped: {error}", flush=True)
+                    if self.failures > max(20, self.games_done):
+                        raise RuntimeError(f"{self.failures} games dropped for {self.games_done} played") from error
                     alive = False
                 if alive:
                     in_flight[self._submit(game)] = game
-            # Stop starting games once the finished ones and those in flight are expected
-            # to reach the target (games in flight always finish).
-            mean_length = self.positions / self.games_done if self.games_done else 0.6 * self.spec.area
-            expected = sum(max(len(g.rows), mean_length) for g in in_flight.values())
-            if self.positions + expected >= self.config.positions:
-                launching = False
             if time.monotonic() - last_log >= self.config.log_every:
                 self._log()
                 last_log = time.monotonic()
         self._write_shard()
         self._log()
         return {"positions": self.positions, "games": self.games_done, "fullSearches": self.full_searches,
-                "ends": self.ends, "failures": self.failures, "seconds": time.monotonic() - self.started}
+                "ends": self.ends, "failures": self.failures, "fallbacks": self.stats["fallbacks"],
+                "seconds": time.monotonic() - self.started}
 
 
 def selfplay(config: SelfplayConfig) -> dict:
