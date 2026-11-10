@@ -383,36 +383,42 @@ test du pilote, sur le snapshot INT8 :
 | own15 | `--ownership-weight 1.5` | 1,247 | 45,0 % | 0,385 | 0,404 | 60,1 % |
 | combo | wd01 + om0 | 1,209 | 45,4 % | 0,380 | 0,395 | 61,0 % |
 | combo-own | wd01 + om0 + own15 | 1,219 | 45,1 % | 0,365 | 0,420 | 60,6 % |
+| seed3 | `--seed 3` | 1,258 | 44,9 % | 0,395 | 0,366 | 58,5 % |
+| combo-s2 | combo, `--seed 2` | 1,201 | 46,0 % | 0,371 | 0,415 | 62,4 % |
+| combo-s3 | combo, `--seed 3` | 1,238 | 45,3 % | 0,361 | 0,428 | 61,3 % |
+
+Sur trois graines, la base fait en moyenne KL 1,234, MSE 0,390,
+corrélation 0,379 et signe 59,0 % ; combo fait KL 1,216, MSE 0,371,
+corrélation 0,413 et signe 61,6 %.
 
 *   **Reproductibilité.** La course de base redonne les poids de
     `pilot-all-warm` au bit près (écart maximal 0,0), sur le chemin non
     déterministe et avec un autre jeu de validation : la même époque est
     retenue. Refaire une course ne mesure donc pas le bruit ; il faut
     changer de graine.
-*   **En valeur, le bruit d'une graine couvre les effets.** La recette
-    de base avec la graine 2 a une MSE et une corrélation meilleures que
-    toutes les courses à réglage unique (MSE 0,368 contre 0,406 avec la
-    graine 1, corrélation 0,417 contre 0,355), mais un signe moins juste
-    que wd01, om0 et own15. Aucun réglage ne fait nettement mieux qu'elle
-    en MSE (0,365 au mieux). Toutes les courses à réglage unique ont la
-    graine 1 : deux lectures restent possibles, une graine 1 malchanceuse
-    pour la valeur ou des réglages qui aident et une graine 2 chanceuse.
-    Deux graines ne les départagent pas.
-*   **En politique, deux effets sortent de l'écart des graines** (KL de
-    1,215 à 1,229 pour la base). Le poids de la propriété coûte : 1,247
-    seul, et de 1,209 à 1,219 quand on l'ajoute à combo ; c'est l'effet le
-    mieux établi, vu dans les deux comparaisons appariées. Le weight decay
-    passe sous l'écart (1,210, et 1,209 avec la cible du professeur
-    seule), de peu.
+*   **Le bruit d'une graine est large.** Avec la seule graine changée, la
+    base va de 1,215 à 1,258 en KL et de 0,368 à 0,406 en MSE de valeur :
+    plus que l'effet de tout réglage pris sur une seule graine. Le premier
+    balayage, tout en graine 1, ne départage donc rien seul.
+*   **À graine égale, combo fait mieux que la base.** La graine fixe
+    l'ordre des données, le tirage des symétries et l'initialisation des
+    nouvelles têtes, ce qui apparie les courses. Sur les trois paires, combo baisse le KL (de 0,014 à 0,020)
+    et améliore le signe de la valeur (de 2,1 à 2,8 points). La MSE baisse
+    dans deux paires sur trois (0,026 et 0,034) et monte de 0,003 dans la
+    troisième. Trois paires de même sens restent un indice, pas une
+    preuve.
+*   **Le poids de la propriété coûte à la politique** : 1,247 seul en
+    graine 1, et de 1,209 à 1,219 quand on l'ajoute à combo, pour un gain
+    de valeur que la graine seule donne aussi.
 *   **La valeur reste derrière la propriété.** La meilleure corrélation
-    (0,420) reste sous celle de la somme de la propriété de
+    (0,428) atteint à peine celle de la somme de la propriété de
     `pilot-all-warm` (0,43). Le jeu de test compte 123 parties, et ces
     écarts sont à la taille de son bruit.
-*   **Pour le prochain corpus.** Aucune recette n'est établie. Le weight
-    decay à 0,1 et la cible du professeur seule ne coûtent rien sur ces
-    mesures, et la cible du professeur seule est celle d'une distillation.
-    Les départager demande plusieurs graines par recette, ou le match
-    contre `rank_5k`.
+*   **Pour le prochain corpus : combo** (`--weight-decay 0.1
+    --outcome-mix 0`). Il ne perd sur aucune paire, et la cible du
+    professeur seule est celle d'une distillation. Le poids de la
+    propriété reste à 0,5. Le gain se vérifiera au match contre
+    `rank_5k`.
 
 ### Moteur
 
