@@ -134,7 +134,10 @@ proposition :
     [45,6 ; 59,4] (voir Banc 19×19). Un candidat doit y faire au moins
     60 % (+70 Elo contre le profil, environ +50 sur le pilote), au-dessus
     de l'intervalle du pilote. Au-delà d'environ 75 %, le rang de
-    référence passe au profil suivant (`rank_3k`) ;
+    référence passe au profil suivant (`rank_3k`, pas encore joué). Le
+    seuil vaut pour les conditions du banc : 6 matchs en parallèle, aucun
+    entraînement à côté, la même recherche. Un changement de la recherche
+    (la règle de passe, par exemple) demande de rejouer le pilote ;
 *   au moins 55 victoires sur 100 contre la version précédente.
 
 L'arbitre est le score de KataGo, pas le retrait des pierres mortes de
@@ -341,7 +344,7 @@ sans entraînement à côté). Les fichiers de résultats restent dans
 *   **La recherche aide déjà**, malgré une tête de valeur à peine
     meilleure que la constante : de 18,5 % à 52,5 %, environ +275 Elo.
     `zig-reuse` fait 470 visites par coup à 1 s, soit 2,1 ms par visite
-    arbre compris (environ 400 avec 8 matchs en parallèle).
+    arbre compris (397 sur les 20 parties du premier passage).
 *   **`rank_5k` devient le rang de référence** : le pilote y est à
     l'équilibre, loin des deux bornes, si bien qu'un progrès comme un
     recul s'y mesure (voir Critères).
@@ -386,19 +389,21 @@ test du pilote, sur le snapshot INT8 :
     déterministe et avec un autre jeu de validation : la même époque est
     retenue. Refaire une course ne mesure donc pas le bruit ; il faut
     changer de graine.
-*   **Le bruit d'une graine à l'autre couvre les effets.** La recette de
-    base avec la graine 2 fait mieux en valeur que toutes les courses à
-    réglage unique (MSE 0,368 contre 0,406 avec la graine 1, corrélation
-    0,417 contre 0,355), et presque aussi bien en politique que la
-    meilleure (KL 1,215 contre 1,209). Avec deux graines, aucun réglage
-    ne sort de cet écart. La graine 1 de la base était un mauvais tirage
-    pour la valeur, et les gains de valeur du premier balayage (0,02 à
-    0,03 de MSE) en sont pour l'essentiel le reflet.
-*   **Tendances, sans preuve.** Le weight decay est la seule course à
-    réglage unique dont la politique dépasse les deux graines de la base
-    (KL 1,210, et 1,209 avec la cible du professeur seule). Le poids de la
-    propriété coûte à la politique (1,247 seul, 1,219 combiné) et donne la
-    meilleure valeur combinée (0,365), au niveau de la graine 2.
+*   **En valeur, le bruit d'une graine couvre les effets.** La recette
+    de base avec la graine 2 a une MSE et une corrélation meilleures que
+    toutes les courses à réglage unique (MSE 0,368 contre 0,406 avec la
+    graine 1, corrélation 0,417 contre 0,355), mais un signe moins juste
+    que wd01, om0 et own15. Aucun réglage ne fait nettement mieux qu'elle
+    en MSE (0,365 au mieux). Toutes les courses à réglage unique ont la
+    graine 1 : deux lectures restent possibles, une graine 1 malchanceuse
+    pour la valeur ou des réglages qui aident et une graine 2 chanceuse.
+    Deux graines ne les départagent pas.
+*   **En politique, deux effets sortent de l'écart des graines** (KL de
+    1,215 à 1,229 pour la base). Le poids de la propriété coûte : 1,247
+    seul, et de 1,209 à 1,219 quand on l'ajoute à combo ; c'est l'effet le
+    mieux établi, vu dans les deux comparaisons appariées. Le weight decay
+    passe sous l'écart (1,210, et 1,209 avec la cible du professeur
+    seule), de peu.
 *   **La valeur reste derrière la propriété.** La meilleure corrélation
     (0,420) reste sous celle de la somme de la propriété de
     `pilot-all-warm` (0,43). Le jeu de test compte 123 parties, et ces
