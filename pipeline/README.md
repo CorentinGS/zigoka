@@ -1,4 +1,4 @@
-# 9×9 distillation pipeline
+# Distillation pipeline, 9×9 and 19×19
 
 Generate → train → export for a Moka-format student, in PyTorch, with the
 same artifact contract as the rest of this repo (`million-go-int8`,
@@ -71,6 +71,35 @@ probabilities, `value [N] f32` in [-1, 1], `game_id [N]` — training splits
 by whole game (and refuses single-game or empty splits). Rollout
 temperature is applied exactly once, at sampling time.
 
+## 19×19: KataGo self-play, shards, training
+
+The teacher is a native KataGo network driven through `katago analysis`
+(`analysis.py`), which computes its own inputs, ladders included. On AMD,
+`katago/katago-rocm` runs KataGo's ROCm build with the ROCm libraries of
+the torch wheel (unzip the `katago-v1.18.1-rocm7.2.4-linux-x64` release
+into `~/.cache/zigoka-katago/rocm/`, or point `KATAGO_ROCM` at it).
+
+```sh
+# KataGo plays itself under Moka's rules (no pass before move 89, 540
+# moves at most); every position keeps the raw policy and value, a quarter
+# of them a 64-visit search. Compact shards: about 2.4 KB per position.
+uv run go-selfplay --katago katago/katago-rocm \
+  --model ~/.cache/zigoka-katago/nets/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz \
+  --out data/selfplay-19 --board-size 19 --positions 1000000
+
+# Train on every shard of the directory. --arch v2 at the shards' board
+# size, or a warm start: a 9×9 checkpoint or model keeps its trunk and
+# gets new 19×19 heads.
+uv run go-train --data data/selfplay-19 --arch v2 --epochs 20 --out checkpoints/moka-19.pt
+uv run go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/moka-19
+```
+
+Measured on a 16 GB gfx1030 Radeon (RX 6800 / 6900 XT family): self-play
+about 97 positions/s (KataGo ROCm, b18c384nbt; the OpenCL build is 4×
+slower), training Moka v2 at 19×19 about 4 000 positions/s in bf16. The
+shards' format is in `shards.py`, the targets the trainer derives from
+them in `dataset.load_training_data`.
+
 To serve an exported model from this repo, add one entry for its directory
 in `MODELS` in the root `build.zig` (next to `moka-9`), then run the usual
 `pnpm oracle` / `zig build test` flow for that model id.
@@ -90,9 +119,12 @@ with `tools/gen_model_layout.zig` itself.
 
 ```sh
 uv run pytest   # board, KataGo encoding, symmetry, artifact selection,
-                # strict validation, split edges, train smokes, parity
+                # strict validation, split edges, train smokes, parity,
+                # oracle parity of every model, KataGo analysis responses,
+                # self-play against a scripted engine
 ```
 
-Not verified here: actual CUDA execution (no NVIDIA GPU on this machine).
-The CUDA path is the standard PyTorch one — `resolve_device("cuda")`
-fails loudly if torch cannot see a GPU rather than silently using CPU.
+Not verified here: actual CUDA execution on NVIDIA (only the ROCm path
+ran on a GPU). The CUDA path is the standard PyTorch one —
+`resolve_device("cuda")` fails loudly if torch cannot see a GPU rather
+than silently using CPU.

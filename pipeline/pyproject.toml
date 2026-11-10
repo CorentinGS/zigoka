@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "go-distill-9x9"
 version = "0.1.0"
-description = "9x9 distillation pipeline (generate / train / export) for the Moka-format student, with NVIDIA CUDA support"
+description = "Distillation pipeline (generate / self-play / train / export) for the Moka-format student, 9x9 and 19x19, on CUDA or ROCm"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.26",
@@ -30,6 +30,7 @@ katago = ["onnxruntime-gpu>=1.19"]
 
 [project.scripts]
 go-generate = "go_pipeline.generate:main"
+go-selfplay = "go_pipeline.selfplay:main"
 go-train = "go_pipeline.train:main"
 go-export = "go_pipeline.export:main"
 

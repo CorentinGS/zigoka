@@ -44,7 +44,10 @@ def configure(device: torch.device, deterministic: bool = False) -> None:
     if is_cuda(device):
         torch.backends.cuda.matmul.allow_tf32 = not deterministic
         torch.backends.cudnn.allow_tf32 = not deterministic
-        torch.backends.cudnn.benchmark = not deterministic
+        # On ROCm, benchmark mode runs MIOpen's exhaustive kernel search for
+        # every convolution shape: over ten minutes for Moka v2 at 19×19 on
+        # gfx1030, against 6 s with the default heuristics. Off on ROCm.
+        torch.backends.cudnn.benchmark = not deterministic and not torch.version.hip
         torch.backends.cudnn.deterministic = deterministic
 
 
