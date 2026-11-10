@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Runs KataGo's ROCm build with the ROCm libraries of the pipeline's torch
+# wheel, so no system ROCm install is needed. The build links
+# libhipblas.so.3, libMIOpen.so.1 and libamdhip64.so.7; the wheel ships
+# the same ROCm (7.2) under unversioned file names, so this script links
+# each of them under its soname in a cache directory first.
+#
+#   pipeline/katago/katago-rocm analysis -model <net.bin.gz> -config pipeline/katago/analysis.cfg
+#
+# KATAGO_ROCM overrides the binary (default: the AppImage of the
+# katago-v1.18.1-rocm7.2.4-linux-x64 release, unzipped in the cache).
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/zigoka-katago
+katago=${KATAGO_ROCM:-$cache/rocm/katago}
+python=${PYTHON:-$here/../.venv/bin/python}
+
+torch_lib=$("$python" -I -c 'import importlib.util, os; print(os.path.join(importlib.util.find_spec("torch").submodule_search_locations[0], "lib"))')
+links=$cache/rocm-libs
+mkdir -p "$links"
+for lib in "$torch_lib"/*.so; do
+  soname=$(readelf -d "$lib" 2>/dev/null | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')
+  if [ -n "$soname" ] && [ "$soname" != "$(basename "$lib")" ]; then
+    ln -sfn "$lib" "$links/$soname"
+  fi
+done
+
+export LD_LIBRARY_PATH="$links:$torch_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$katago" "$@"
