@@ -95,8 +95,11 @@ uv run go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/moka
 ```
 
 Measured on a 16 GB gfx1030 Radeon (RX 6800 / 6900 XT family): self-play
-about 97 positions/s (KataGo ROCm, b18c384nbt; the OpenCL build is 4×
-slower), training Moka v2 at 19×19 about 4 000 positions/s in bf16. The
+about 125 positions/s once warm, 253 000 positions in 35 minutes (KataGo
+ROCm, b18c384nbt; the OpenCL build is 4× slower), training Moka v2 at
+19×19 about 4 000 positions/s in bf16. KataGo's memory grows while its NN
+cache (2^20 entries) fills: 4.9 GB after those 35 minutes, still growing
+by 17 MB a minute. The
 shards' format is in `shards.py`, the targets the trainer derives from
 them in `dataset.load_training_data`.
 
