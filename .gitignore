@@ -16,6 +16,9 @@ node_modules/
 # Generated reference data
 oracle/fixtures/
 
+# Local exports of pipeline/ checkpoints (zig build -Dlocal-model=<id>:<registered id>)
+models/local/
+
 # Benchmark results: only the S0 baseline is versioned.
 bench/results/*.json
 !bench/results/baseline-*.json

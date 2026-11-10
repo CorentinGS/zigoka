@@ -8,6 +8,9 @@ const Model = struct {
     directory: []const u8,
     memory_pages: u32,
     search: SearchCapacity,
+    /// Installed under zig-out/local/ instead of zig-out/, out of sight of the scripts and
+    /// tests that list zig-out/models/.
+    local: bool = false,
 };
 
 const SearchCapacity = struct {
@@ -55,6 +58,7 @@ pub fn build(b: *std.Build) void {
     const host = b.graph.host;
     const fixtures = b.option([]const u8, "fixtures", "Reference data root directory (default: oracle/fixtures)") orelse "oracle/fixtures";
     const selected = b.option([]const u8, "model", "Build only this model");
+    const local = b.option([]const u8, "local-model", "Also build models/local/<id>/ (never versioned) with the memory of a registered model of the same architecture: <id>:<registered id>");
 
     const gen_tool = b.addExecutable(.{
         .name = "gen_model_layout",
@@ -97,19 +101,20 @@ pub fn build(b: *std.Build) void {
     tool_test_module.addAnonymousImport("go-model.bin", .{ .root_source_file = modelFile(b, moka, "go-model.bin") });
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = tool_test_module })).step);
 
-    const models = selectModels(b, selected);
+    const models = withLocalModel(b, selectModels(b, selected), local);
     for (models) |model| {
         const manifest = modelFile(b, model, "go-model.json");
         const weights = modelFile(b, model, "go-model.bin");
+        const prefix = if (model.local) "local/" else "";
 
         const gen_run = b.addRunArtifact(gen_tool);
         gen_run.addFileArg(manifest);
         gen_run.addFileArg(weights);
         const model_layout_source = gen_run.addOutputFileArg("model_layout.zig");
-        gen_step.dependOn(&b.addInstallFile(model_layout_source, b.fmt("gen/{s}/model_layout.zig", .{model.id})).step);
+        gen_step.dependOn(&b.addInstallFile(model_layout_source, b.fmt("{s}gen/{s}/model_layout.zig", .{ prefix, model.id })).step);
 
-        models_step.dependOn(&b.addInstallFile(manifest, b.fmt("models/{s}/go-model.json", .{model.id})).step);
-        models_step.dependOn(&b.addInstallFile(weights, b.fmt("models/{s}/go-model.bin", .{model.id})).step);
+        models_step.dependOn(&b.addInstallFile(manifest, b.fmt("{s}models/{s}/go-model.json", .{ prefix, model.id })).step);
+        models_step.dependOn(&b.addInstallFile(weights, b.fmt("{s}models/{s}/go-model.bin", .{ prefix, model.id })).step);
 
         const memory_options = b.addOptions();
         memory_options.addOption(u32, "memory_pages", model.memory_pages);
@@ -129,6 +134,9 @@ pub fn build(b: *std.Build) void {
         const search_wasm = addInferWasm(b, model, "search", "src/search_exports.zig", .ReleaseFast, targets.target, model_layout_source, search_memory_options.createModule(), model.search.memory_pages);
         search_wasm.artifact.root_module.addImport("search_config", search_options.createModule());
         targets.search.dependOn(&search_wasm.step);
+
+        // The native tests compare against oracle/fixtures/<id>/, which a local model does not have.
+        if (model.local) continue;
 
         const test_options = b.addOptions();
         const fixtures_root = if (std.fs.path.isAbsolute(fixtures)) b.graph.cwdRelativePath(fixtures) else b.path(fixtures);
@@ -164,6 +172,41 @@ fn selectModels(b: *std.Build, selected: ?[]const u8) []const Model {
     const known = std.mem.join(b.allocator, ", ", &ids) catch @panic("OOM");
     std.debug.print("unknown model {s}; known models: {s}\n", .{ id, known });
     std.process.exit(1);
+}
+
+/// Adds a local model: an export of a `pipeline/` checkpoint in models/local/<id>/, which is
+/// never versioned, built into zig-out/local/. It borrows the memory and search capacity of the
+/// registered model `like`, which must have the same architecture; the manifest checks of
+/// gen_model_layout still apply, and the native tests skip it.
+fn withLocalModel(b: *std.Build, models: []const Model, spec: ?[]const u8) []const Model {
+    const text = spec orelse return models;
+    const colon = std.mem.indexOfScalar(u8, text, ':') orelse {
+        std.debug.print("-Dlocal-model expects <id>:<registered id>, got {s}\n", .{text});
+        std.process.exit(1);
+    };
+    const id = text[0..colon];
+    const like_id = text[colon + 1 ..];
+    if (id.len == 0 or std.mem.indexOfAny(u8, id, "/\\.") != null) {
+        std.debug.print("-Dlocal-model: {s} is not a plain directory name\n", .{id});
+        std.process.exit(1);
+    }
+    for (MODELS) |model| {
+        if (std.mem.eql(u8, model.id, id)) {
+            std.debug.print("-Dlocal-model: {s} is already a registered model\n", .{id});
+            std.process.exit(1);
+        }
+    }
+    const like = selectModels(b, like_id)[0];
+    const list = b.allocator.alloc(Model, models.len + 1) catch @panic("OOM");
+    @memcpy(list[0..models.len], models);
+    list[models.len] = .{
+        .id = id,
+        .directory = b.fmt("models/local/{s}", .{id}),
+        .memory_pages = like.memory_pages,
+        .search = like.search,
+        .local = true,
+    };
+    return list;
 }
 
 fn modelFile(b: *std.Build, model: Model, name: []const u8) std.Build.LazyPath {
@@ -210,5 +253,6 @@ fn addInferWasm(
     wasm.initial_memory = memory_pages * WASM_PAGE_BYTES;
     wasm.max_memory = memory_pages * WASM_PAGE_BYTES;
     wasm.stack_size = WASM_STACK_BYTES;
-    return b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = model.id } } });
+    const dest = if (model.local) b.fmt("local/{s}", .{model.id}) else model.id;
+    return b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = dest } } });
 }

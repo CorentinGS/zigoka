@@ -95,7 +95,7 @@ uv run --no-sync go-selfplay --katago katago/katago-rocm \
 # size, or a warm start: a 9×9 checkpoint or model keeps its trunk and
 # gets new 19×19 heads.
 uv run --no-sync go-train --data data/selfplay-19 --arch v2 --epochs 20 --out checkpoints/moka-19.pt
-uv run --no-sync go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/moka-19
+uv run --no-sync go-export --checkpoint checkpoints/moka-19.pt --output-dir ../models/local/moka-19
 ```
 
 Measured on a 16 GB gfx1030 Radeon (RX 6800 / 6900 XT family): self-play
@@ -107,6 +107,17 @@ its NN cache (2^20 entries) filling, though the ceiling is not measured.
 The
 shards' format is in `shards.py`, the targets the trainer derives from
 them in `dataset.load_training_data`.
+
+To try an export without versioning it, put it in `models/local/<id>/`
+(ignored by git) and build it with the memory of a registered model of the
+same architecture; it lands in `zig-out/local/`, where the match finds it:
+
+```sh
+zig build models wasm search -Dlocal-model=moka-19:synthetic-19-v2
+pnpm build:js
+node match/dist/match-19.js --first zig-reuse --first-model moka-19 --second katago \
+  --katago-profile rank_1k --time 1000 --games 200
+```
 
 To serve an exported model from this repo, add one entry for its directory
 in `MODELS` in the root `build.zig` (next to `moka-9`), then run the usual
