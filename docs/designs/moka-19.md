@@ -361,37 +361,53 @@ sans entraînement à côté). Les fichiers de résultats restent dans
 
 Les essais « à coût nul » du pilote (point 3), sur le même corpus de
 48 shards. Chaque course reprend la recette de `pilot-all-warm` (départ à
-chaud, 8 époques, lots de 256, AdamW à 1e-3, graine 1) et change un seul
-réglage. Les défauts sont : weight decay 0, cible de valeur à 30 % le
-résultat de la partie et 70 % le professeur (`--outcome-mix 0.3`), poids
-de la valeur 1, poids de la propriété 0,5. La validation, qui choisit
-l'époque, est un jeu produit à part (`go-selfplay --positions 20000
---seed 4` vers `data/pilot-19-val`, 25 334 positions). Les mesures sont
-celles du jeu de test du pilote, sur le snapshot INT8 :
+chaud, 8 époques, lots de 256, AdamW à 1e-3, graine 1) et change un ou
+plusieurs réglages. Les défauts sont : weight decay 0, cible de valeur à
+30 % le résultat de la partie et 70 % le professeur (`--outcome-mix 0.3`),
+poids de la valeur 1, poids de la propriété 0,5. La validation, qui
+choisit l'époque, est un jeu produit à part (`go-selfplay --positions
+20000 --seed 4` vers `data/pilot-19-val`, 25 334 positions). Toutes les
+courses gardent la dernière époque. Les mesures sont celles du jeu de
+test du pilote, sur le snapshot INT8 :
 
 | Course | Réglage | KL | Accord top-1 | MSE valeur | Corr. valeur | Signe |
 |---|---|---:|---:|---:|---:|---:|
 | base | aucun | 1,229 | 45,3 % | 0,406 | 0,355 | 58,9 % |
-| wd01 | `--weight-decay 0.1` | **1,210** | **46,1 %** | **0,381** | 0,397 | **60,4 %** |
-| om0 | `--outcome-mix 0` | 1,222 | 45,2 % | 0,384 | 0,391 | **60,4 %** |
+| seed2 | `--seed 2` | 1,215 | 45,8 % | 0,368 | 0,417 | 59,6 % |
+| wd01 | `--weight-decay 0.1` | 1,210 | 46,1 % | 0,381 | 0,397 | 60,4 % |
+| om0 | `--outcome-mix 0` | 1,222 | 45,2 % | 0,384 | 0,391 | 60,4 % |
 | vw05 | `--value-weight 0.5` | 1,219 | 45,6 % | 0,399 | 0,366 | 58,7 % |
-| own15 | `--ownership-weight 1.5` | 1,247 | 45,0 % | 0,385 | **0,404** | 60,1 % |
+| own15 | `--ownership-weight 1.5` | 1,247 | 45,0 % | 0,385 | 0,404 | 60,1 % |
+| combo | wd01 + om0 | 1,209 | 45,4 % | 0,380 | 0,395 | 61,0 % |
+| combo-own | wd01 + om0 + own15 | 1,219 | 45,1 % | 0,365 | 0,420 | 60,6 % |
 
 *   **Reproductibilité.** La course de base redonne les poids de
     `pilot-all-warm` au bit près (écart maximal 0,0), sur le chemin non
     déterministe et avec un autre jeu de validation : la même époque est
     retenue. Refaire une course ne mesure donc pas le bruit ; il faut
     changer de graine.
-*   **Le weight decay est le meilleur réglage** : il améliore la
-    politique et la valeur à la fois. Retirer le résultat de la partie de
-    la cible de valeur aide autant la valeur, sans effet sur la
-    politique. Le poids de la propriété aide la valeur mais coûte à la
-    politique.
-*   **La valeur reste derrière la propriété.** Aucune course ne dépasse
-    la corrélation de 0,43 de la somme de la propriété de
-    `pilot-all-warm`.
-*   Le bruit d'une graine à l'autre n'est pas encore mesuré. Les écarts
-    de valeur (0,02 à 0,03 de MSE) sont à confirmer.
+*   **Le bruit d'une graine à l'autre couvre les effets.** La recette de
+    base avec la graine 2 fait mieux en valeur que toutes les courses à
+    réglage unique (MSE 0,368 contre 0,406 avec la graine 1, corrélation
+    0,417 contre 0,355), et presque aussi bien en politique que la
+    meilleure (KL 1,215 contre 1,209). Avec deux graines, aucun réglage
+    ne sort de cet écart. La graine 1 de la base était un mauvais tirage
+    pour la valeur, et les gains de valeur du premier balayage (0,02 à
+    0,03 de MSE) en sont pour l'essentiel le reflet.
+*   **Tendances, sans preuve.** Le weight decay est la seule course à
+    réglage unique dont la politique dépasse les deux graines de la base
+    (KL 1,210, et 1,209 avec la cible du professeur seule). Le poids de la
+    propriété coûte à la politique (1,247 seul, 1,219 combiné) et donne la
+    meilleure valeur combinée (0,365), au niveau de la graine 2.
+*   **La valeur reste derrière la propriété.** La meilleure corrélation
+    (0,420) reste sous celle de la somme de la propriété de
+    `pilot-all-warm` (0,43). Le jeu de test compte 123 parties, et ces
+    écarts sont à la taille de son bruit.
+*   **Pour le prochain corpus.** Aucune recette n'est établie. Le weight
+    decay à 0,1 et la cible du professeur seule ne coûtent rien sur ces
+    mesures, et la cible du professeur seule est celle d'une distillation.
+    Les départager demande plusieurs graines par recette, ou le match
+    contre `rank_5k`.
 
 ### Moteur
 
