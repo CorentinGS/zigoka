@@ -35,6 +35,12 @@ const MODELS = [_]Model{
         .memory_pages = 66,
         .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 580 },
     },
+    .{
+        .id = "synthetic-19-v2",
+        .directory = "models/synthetic-19-v2",
+        .memory_pages = 81,
+        .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 581 },
+    },
 };
 
 const WasmTargets = struct {

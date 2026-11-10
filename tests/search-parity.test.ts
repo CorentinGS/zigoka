@@ -52,6 +52,15 @@ const MODELS = [
     searchPositions: 4,
     searchVisits: 60,
   },
+  {
+    id: "synthetic-19-v2",
+    loadRules: () => loadRules(19),
+    randomGames: 2,
+    policyGames: 1,
+    deadStoneInterval: 60,
+    searchPositions: 2,
+    searchVisits: 60,
+  },
 ];
 
 const readArrayBuffer = (filePath: string) => {

@@ -31,6 +31,7 @@ MODEL_DIRS = {
     "moka-9": ROOT / "vendor" / "moka" / "model",
     "moka-9-v2": ROOT / "vendor" / "moka-v2" / "model",
     "synthetic-19": ROOT / "models" / "synthetic-19",
+    "synthetic-19-v2": ROOT / "models" / "synthetic-19-v2",
 }
 CASES = [(model, split) for model in MODEL_DIRS for split in ("calibration", "validation")]
 

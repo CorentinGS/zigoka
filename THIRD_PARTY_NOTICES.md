@@ -25,6 +25,12 @@ copied). It is under the same MIT license, reproduced in
 `vendor/moka-v2/LICENSE`, and is never modified either; its digests are in
 `vendor/moka-v2/VENDORED.md`.
 
+`models/synthetic-19-v2/` is derived from the Moka v2 weights the same way:
+its trunk is copied byte for byte from `vendor/moka-v2/model/go-model.bin`,
+and its heads are resampled from Moka v2's head rows. It is distributed under
+the same MIT license. Its origin is recorded in
+`models/synthetic-19-v2/PROVENANCE.md`.
+
 > MIT License
 >
 > Copyright (c) 2026 Million Software, Inc.
