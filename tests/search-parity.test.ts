@@ -61,6 +61,15 @@ const MODELS = [
     searchPositions: 2,
     searchVisits: 60,
   },
+  {
+    id: "moka-19",
+    loadRules: () => loadRules(19),
+    randomGames: 2,
+    policyGames: 1,
+    deadStoneInterval: 60,
+    searchPositions: 2,
+    searchVisits: 60,
+  },
 ];
 
 const readArrayBuffer = (filePath: string) => {

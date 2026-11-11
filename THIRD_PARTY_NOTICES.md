@@ -31,6 +31,10 @@ and its heads are resampled from Moka v2's head rows. It is distributed under
 the same MIT license. Its origin is recorded in
 `models/synthetic-19-v2/PROVENANCE.md`.
 
+`models/moka-19/` started from the Moka v2 trunk (`vendor/moka-v2/model/`)
+before it was trained on positions labelled by a KataGo network (see KataGo
+networks below). Its origin is recorded in `models/moka-19/PROVENANCE.md`.
+
 > MIT License
 >
 > Copyright (c) 2026 Million Software, Inc.
@@ -80,3 +84,31 @@ Moka's own `THIRD_PARTY_NOTICES.md`, reproduced verbatim:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
+
+## KataGo networks
+
+`models/moka-19/` is distilled from the KataGo network
+`kata1-b18c384nbt-s9996604416-d4316597426`, published at
+<https://katagotraining.org/networks/> under the KataGo Neural Network
+License (<https://katagotraining.org/network_license/>). The license does not
+say whether a network distilled from its outputs is a copy or a substantial
+portion of it; its notice is included anyway, and reproduced verbatim in
+`models/moka-19/KATAGO-NETWORK-LICENSE.txt`:
+
+> KataGo Neural Network License
+>
+> Copyright 2026 David J Wu ("lightvector").
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy of the neural net files or training weight files (the "Software"), to deal in the Software without restriction,
+> including without limitation the rights to use, copy, modify, merge, publish, distribute,
+> sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all copies or
+> substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+> NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+> NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+> DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
