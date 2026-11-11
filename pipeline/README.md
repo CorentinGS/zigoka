@@ -119,6 +119,20 @@ node match/dist/match-19.js --first zig-reuse --first-model moka-19 --second kat
   --katago-profile rank_1k --time 1000 --games 200
 ```
 
+One round of the 19×19 student in one command, from anywhere:
+`pipeline/scripts/round-19.sh <id>` writes a self-play corpus to
+`data/<id>/` in chunks of one KataGo process each, trains the combined
+recipe of `docs/designs/moka-19.md` on the pilot plus that corpus once per
+seed, scores each seed on the pilot's test set (`scripts/score.py`), exports
+the seed with the best validation loss to `models/local/<id>/` and plays it
+200 games against KataGo's `rank_5k` profile. Its logs and its markers go to
+`checkpoints/<id>/`; run it again to resume after the last finished step.
+Sizes come from the environment (`CHUNKS`, `CHUNK_POSITIONS`, `SEEDS`,
+`EPOCHS`, `GAMES`); the defaults, 2.5 M positions and 3 seeds, take about
+10 hours. A chunk stopped halfway leaves its shards in `data/<id>/`, and the
+rerun appends a whole chunk after them: delete the shards written since the
+last `chunk-<n>.done` before resuming.
+
 To serve an exported model from this repo, add one entry for its directory
 in `MODELS` in the root `build.zig` (next to `moka-9`), then run the usual
 `pnpm oracle` / `zig build test` flow for that model id.

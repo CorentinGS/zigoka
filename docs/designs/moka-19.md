@@ -528,8 +528,10 @@ ms, à `count = 1` :
     changement s'y mesurerait sur le banc de v2, sans réentraîner.
 *   **Redémarrage de KataGo par shard.** Prévu par la proposition, pas
     implémenté : pendant le pilote, la mémoire suit le remplissage du cache
-    du réseau et ralentit vers un plafond (voir Pilote). À revoir si une
-    course de plusieurs heures dépasse environ 6 Go.
+    du réseau et ralentit vers un plafond (voir Pilote).
+    `pipeline/scripts/round-19.sh` relance KataGo par tranche de 250 000
+    positions, la taille du pilote, ce qui suffit tant qu'une tranche reste
+    sous environ 6 Go.
 *   **`katago selfplay` et un convertisseur** de ses npz vers les 12 plans
     de Moka, si l'étiquetage par le moteur d'analyse ne suffit pas.
 *   **Chemin déterministe sur GPU.** Il tourne sur la Radeon (le quart du
