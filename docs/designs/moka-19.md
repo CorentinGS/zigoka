@@ -495,6 +495,24 @@ ms, à `count = 1` :
 *   En une seconde de recherche, cela fait environ 340 évaluations sur
     cette machine, sans compter le coût de l'arbre.
 
+### Site
+
+`moka-19` est la graine 2 de la ronde `moka-19-r1`, publiée dans
+`models/moka-19/` (provenance et licence KataGo à côté) avant le match
+contre `rank_5k`, remis à plus tard : sa force en partie n'est pas mesurée.
+
+*   Le site a deux éditions, chacune dans son dossier de `site/public` :
+    9×9 (Moka v2) à la racine, 19×19 (`moka-19`) dans `19x19/`. Chacune a
+    ses bundles, construits avec ses constantes (`scripts/build-js.mjs`),
+    son wasm et son modèle ; la page, la feuille de style et les licences
+    sont communes.
+*   **Arbitrage.** Après deux passes, la page marque les pierres que
+    l'estimation de Moka juge mortes, et le joueur corrige : un clic sur un
+    groupe le marque mort ou vivant, le score suit, puis il accepte. Undo
+    revient à la partie. Moka ne sait pas compter une fin de partie 19×19
+    disputée (voir Banc 19×19, Arbitrage), et le modèle exporté n'a pas de
+    tête de propriété : le joueur reste l'arbitre, en 9×9 comme en 19×19.
+
 ## Tests
 
 *   `pipeline/tests/test_pipeline.py` : presets, aller-retour d'export en
