@@ -1,5 +1,12 @@
 import { formatMove, formatScore, renderGoban } from "../js/goban.ts";
-import { GO_BLACK_COLOR, GO_PASS_MOVE, GO_WHITE_COLOR } from "../vendor/moka/src/constants.ts";
+import {
+  GO_BLACK_COLOR,
+  GO_BOARD_SIZE,
+  GO_EMPTY_COLOR,
+  GO_KOMI_POINTS,
+  GO_PASS_MOVE,
+  GO_WHITE_COLOR,
+} from "../vendor/moka/src/constants.ts";
 import {
   createGameState,
   getAreaScore,
@@ -10,7 +17,8 @@ import {
 } from "../vendor/moka/src/game.ts";
 import { LEVEL_BY_ID, type LevelId, type LevelSpec, type SiteWorkerResponse } from "./protocol.ts";
 
-type PageState = "loading" | "human" | "thinking" | "over" | "error";
+// "scoring": both sides passed, the player marks the dead stones before accepting the score.
+type PageState = "loading" | "human" | "thinking" | "scoring" | "over" | "error";
 
 type PlayedMove = { move: number; color: number };
 
@@ -33,6 +41,7 @@ const passButton = getElement<HTMLButtonElement>("pass");
 const resignButton = getElement<HTMLButtonElement>("resign");
 const undoButton = getElement<HTMLButtonElement>("undo");
 const newGameButton = getElement<HTMLButtonElement>("new-game");
+const acceptButton = getElement<HTMLButtonElement>("accept");
 
 /** Labels for the two stone colors, as used in the status line. */
 const getColorLabel = (color: number) => (color === GO_BLACK_COLOR ? "black" : "white");
@@ -80,7 +89,9 @@ const setPageState = (state: PageState, status: string) => {
 
   passButton.disabled = !isHumanTurn;
   resignButton.disabled = !isHumanTurn;
-  undoButton.disabled = !isHumanTurn || findUndoIndex() === null;
+  // Undo also leaves the scoring step, back to the game.
+  undoButton.disabled = !(isHumanTurn || state === "scoring") || findUndoIndex() === null;
+  acceptButton.disabled = state !== "scoring";
   newGameButton.disabled = state === "loading" || state === "error";
 };
 
@@ -93,8 +104,8 @@ const renderBoard = () =>
         : null,
     deadMoves,
     showCoordinates: true,
-    isInteractive: pageState === "human",
-    hoverMove,
+    isInteractive: pageState === "human" || pageState === "scoring",
+    hoverMove: pageState === "human" ? hoverMove : null,
     hoverColor: currentState().nextColor,
   });
 
@@ -118,12 +129,76 @@ const render = () => {
   renderMoves();
 };
 
-const finishGame = () => {
-  const current = currentState();
+/** The stones of the chain at `move`: same color, connected through their sides. */
+const getChain = (board: ArrayLike<number>, move: number) => {
+  const color = board[move];
+  const chain = [move];
+  const seen = new Set(chain);
 
-  deadMoves = getAutomaticallyDeadMoves(current);
-  const score = getAreaScore(removeDeadStones(current, deadMoves));
-  setPageState("over", `Game over: ${formatScore(score)} (komi 7)`);
+  for (let index = 0; index < chain.length; index += 1) {
+    const point = chain[index];
+    const row = Math.floor(point / GO_BOARD_SIZE);
+    const column = point % GO_BOARD_SIZE;
+    const neighbors = [
+      row > 0 ? point - GO_BOARD_SIZE : -1,
+      row < GO_BOARD_SIZE - 1 ? point + GO_BOARD_SIZE : -1,
+      column > 0 ? point - 1 : -1,
+      column < GO_BOARD_SIZE - 1 ? point + 1 : -1,
+    ];
+
+    for (const neighbor of neighbors) {
+      if (neighbor >= 0 && !seen.has(neighbor) && board[neighbor] === color) {
+        seen.add(neighbor);
+        chain.push(neighbor);
+      }
+    }
+  }
+
+  return chain;
+};
+
+const formatMarkedScore = () =>
+  `${formatScore(getAreaScore(removeDeadStones(currentState(), deadMoves)))} (komi ${GO_KOMI_POINTS})`;
+
+const showScoring = () =>
+  setPageState("scoring", `Mark the dead stones, then accept. Score: ${formatMarkedScore()}`);
+
+/** Both sides passed: the dead stones Moka's estimate finds are marked, and the player corrects them. */
+const finishGame = () => {
+  deadMoves = getAutomaticallyDeadMoves(currentState());
+  showScoring();
+};
+
+/** Marks the chain at `move` dead, or alive again if it was dead. */
+const toggleDeadChain = (move: number) => {
+  const board = currentState().board;
+
+  if (pageState !== "scoring" || board[move] === GO_EMPTY_COLOR) {
+    return;
+  }
+
+  const chain = getChain(board, move);
+  const marked = new Set(deadMoves);
+  const isDead = marked.has(move);
+
+  for (const point of chain) {
+    if (isDead) {
+      marked.delete(point);
+    } else {
+      marked.add(point);
+    }
+  }
+
+  deadMoves = [...marked].sort((left, right) => left - right);
+  showScoring();
+};
+
+const acceptScore = () => {
+  if (pageState !== "scoring") {
+    return;
+  }
+
+  setPageState("over", `Game over: ${formatMarkedScore()}`);
 };
 
 const requestEngineMove = () => {
@@ -216,7 +291,7 @@ const resign = () => {
 };
 
 const undo = () => {
-  if (pageState !== "human") {
+  if (pageState !== "human" && pageState !== "scoring") {
     return;
   }
 
@@ -283,7 +358,11 @@ board.addEventListener("click", (event) => {
   const target = event.target;
 
   if (target instanceof SVGElement && target.dataset.move !== undefined) {
-    playHumanMove(Number(target.dataset.move));
+    if (pageState === "scoring") {
+      toggleDeadChain(Number(target.dataset.move));
+    } else {
+      playHumanMove(Number(target.dataset.move));
+    }
   }
 });
 
@@ -324,6 +403,7 @@ board.addEventListener("pointerleave", () => {
 passButton.addEventListener("click", () => playHumanMove(GO_PASS_MOVE));
 resignButton.addEventListener("click", resign);
 undoButton.addEventListener("click", undo);
+acceptButton.addEventListener("click", acceptScore);
 newGameButton.addEventListener("click", startGame);
 
 render();

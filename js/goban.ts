@@ -111,6 +111,7 @@ const renderGoban = (svg: SVGSVGElement, view: GobanView) => {
 
     if (color !== GO_EMPTY_COLOR) {
       const isBlack = color === GO_BLACK_COLOR;
+      const isDead = deadMoves.includes(move);
 
       svg.append(
         createSvgElement("circle", {
@@ -120,8 +121,9 @@ const renderGoban = (svg: SVGSVGElement, view: GobanView) => {
           fill: isBlack ? "#111" : "#f4f4f0",
           stroke: "#111",
           "stroke-width": 1,
-          opacity: deadMoves.includes(move) ? 0.35 : 1,
+          opacity: isDead ? 0.35 : 1,
           "data-stone": getColorName(color),
+          ...(isDead ? { "data-dead": "true" } : {}),
         }),
       );
 

@@ -87,6 +87,7 @@ var renderGoban = (svg, view) => {
     const { x, y } = getPointCenter(move);
     if (color !== GO_EMPTY_COLOR) {
       const isBlack = color === GO_BLACK_COLOR;
+      const isDead = deadMoves2.includes(move);
       svg.append(
         createSvgElement("circle", {
           cx: x,
@@ -95,8 +96,9 @@ var renderGoban = (svg, view) => {
           fill: isBlack ? "#111" : "#f4f4f0",
           stroke: "#111",
           "stroke-width": 1,
-          opacity: deadMoves2.includes(move) ? 0.35 : 1,
-          "data-stone": getColorName(color)
+          opacity: isDead ? 0.35 : 1,
+          "data-stone": getColorName(color),
+          ...isDead ? { "data-dead": "true" } : {}
         })
       );
       if (move === view.lastMove) {
@@ -508,6 +510,7 @@ var passButton = getElement("pass");
 var resignButton = getElement("resign");
 var undoButton = getElement("undo");
 var newGameButton = getElement("new-game");
+var acceptButton = getElement("accept");
 var getColorLabel = (color) => color === GO_BLACK_COLOR ? "black" : "white";
 var history = [createGameState()];
 var moves = [];
@@ -538,7 +541,8 @@ var setPageState = (state, status) => {
   const isHumanTurn = state === "human";
   passButton.disabled = !isHumanTurn;
   resignButton.disabled = !isHumanTurn;
-  undoButton.disabled = !isHumanTurn || findUndoIndex() === null;
+  undoButton.disabled = !(isHumanTurn || state === "scoring") || findUndoIndex() === null;
+  acceptButton.disabled = state !== "scoring";
   newGameButton.disabled = state === "loading" || state === "error";
 };
 var renderBoard = () => renderGoban(board, {
@@ -546,8 +550,8 @@ var renderBoard = () => renderGoban(board, {
   lastMove: moves.length > 0 && moves[moves.length - 1].move !== GO_PASS_MOVE ? moves[moves.length - 1].move : null,
   deadMoves,
   showCoordinates: true,
-  isInteractive: pageState === "human",
-  hoverMove,
+  isInteractive: pageState === "human" || pageState === "scoring",
+  hoverMove: pageState === "human" ? hoverMove : null,
   hoverColor: currentState().nextColor
 });
 var renderMoves = () => {
@@ -564,11 +568,58 @@ var render = () => {
   renderBoard();
   renderMoves();
 };
+var getChain = (board2, move) => {
+  const color = board2[move];
+  const chain = [move];
+  const seen = new Set(chain);
+  for (let index = 0; index < chain.length; index += 1) {
+    const point = chain[index];
+    const row = Math.floor(point / GO_BOARD_SIZE);
+    const column = point % GO_BOARD_SIZE;
+    const neighbors = [
+      row > 0 ? point - GO_BOARD_SIZE : -1,
+      row < GO_BOARD_SIZE - 1 ? point + GO_BOARD_SIZE : -1,
+      column > 0 ? point - 1 : -1,
+      column < GO_BOARD_SIZE - 1 ? point + 1 : -1
+    ];
+    for (const neighbor of neighbors) {
+      if (neighbor >= 0 && !seen.has(neighbor) && board2[neighbor] === color) {
+        seen.add(neighbor);
+        chain.push(neighbor);
+      }
+    }
+  }
+  return chain;
+};
+var formatMarkedScore = () => `${formatScore(getAreaScore(removeDeadStones(currentState(), deadMoves)))} (komi ${GO_KOMI_POINTS})`;
+var showScoring = () => setPageState("scoring", `Mark the dead stones, then accept. Score: ${formatMarkedScore()}`);
 var finishGame = () => {
-  const current = currentState();
-  deadMoves = getAutomaticallyDeadMoves(current);
-  const score = getAreaScore(removeDeadStones(current, deadMoves));
-  setPageState("over", `Game over: ${formatScore(score)} (komi 7)`);
+  deadMoves = getAutomaticallyDeadMoves(currentState());
+  showScoring();
+};
+var toggleDeadChain = (move) => {
+  const board2 = currentState().board;
+  if (pageState !== "scoring" || board2[move] === GO_EMPTY_COLOR) {
+    return;
+  }
+  const chain = getChain(board2, move);
+  const marked = new Set(deadMoves);
+  const isDead = marked.has(move);
+  for (const point of chain) {
+    if (isDead) {
+      marked.delete(point);
+    } else {
+      marked.add(point);
+    }
+  }
+  deadMoves = [...marked].sort((left, right) => left - right);
+  showScoring();
+};
+var acceptScore = () => {
+  if (pageState !== "scoring") {
+    return;
+  }
+  setPageState("over", `Game over: ${formatMarkedScore()}`);
 };
 var requestEngineMove = () => {
   const current = currentState();
@@ -634,7 +685,7 @@ var resign = () => {
   setPageState("over", `Game over: ${winnerLetter}+R (resignation)`);
 };
 var undo = () => {
-  if (pageState !== "human") {
+  if (pageState !== "human" && pageState !== "scoring") {
     return;
   }
   const undoIndex = findUndoIndex();
@@ -660,7 +711,7 @@ var startGame = () => {
   worker.postMessage({ type: "new-game" });
   beginTurn();
 };
-var worker = new Worker(new URL("./engine-worker.js?v=00d2ed542c81", import.meta.url), { type: "module" });
+var worker = new Worker(new URL("./engine-worker.js?v=87c6ac01a8f7", import.meta.url), { type: "module" });
 worker.addEventListener("message", (event) => {
   const response = event.data;
   if (response.type === "ready") {
@@ -685,7 +736,11 @@ worker.addEventListener("error", () => {
 board.addEventListener("click", (event) => {
   const target = event.target;
   if (target instanceof SVGElement && target.dataset.move !== void 0) {
-    playHumanMove(Number(target.dataset.move));
+    if (pageState === "scoring") {
+      toggleDeadChain(Number(target.dataset.move));
+    } else {
+      playHumanMove(Number(target.dataset.move));
+    }
   }
 });
 board.addEventListener("pointermove", (event) => {
@@ -714,6 +769,7 @@ board.addEventListener("pointerleave", () => {
 passButton.addEventListener("click", () => playHumanMove(GO_PASS_MOVE));
 resignButton.addEventListener("click", resign);
 undoButton.addEventListener("click", undo);
+acceptButton.addEventListener("click", acceptScore);
 newGameButton.addEventListener("click", startGame);
 render();
 setPageState("loading", "Loading the engine\u2026");
