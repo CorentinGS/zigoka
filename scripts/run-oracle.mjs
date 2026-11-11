@@ -1,5 +1,6 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -58,7 +59,38 @@ const listModels = (modelsDirectory, selected) => {
   return [selected];
 };
 
-const main = () => {
+/** Runs one generator, its stdout and stderr kept together until it exits. */
+const runModel = (args) =>
+  new Promise((resolvePromise) => {
+    const child = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks = [];
+
+    child.stdout.on("data", (chunk) => chunks.push(chunk));
+    child.stderr.on("data", (chunk) => chunks.push(chunk));
+    child.on("close", (status) => {
+      process.stdout.write(Buffer.concat(chunks));
+      resolvePromise({ status });
+    });
+  });
+
+/** Runs the tasks, at most `limit` at a time, and returns their results in task order. */
+const runInParallel = async (tasks, limit) => {
+  const results = new Array(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const index = next;
+      next += 1;
+      results[index] = await tasks[index]();
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, worker));
+
+  return results;
+};
+
+const main = async () => {
   const shouldCheck = process.argv.includes("--check");
   const modelsDirectory = path.resolve(readValueOption("--models-dir") ?? resolve("zig-out/models"));
   const models = listModels(modelsDirectory, readValueOption("--model")).map((id) => {
@@ -77,19 +109,25 @@ const main = () => {
 
   removeFormatV1Directories();
 
-  for (const { id, bundle } of models) {
-    const args = [bundle, "--model", id, "--models-dir", modelsDirectory];
+  // Each model writes its own oracle/fixtures/<id>/, so the models run in parallel; each
+  // one's output is printed in one block once it finishes, in the order they finish.
+  const results = await runInParallel(
+    models.map(({ id, bundle }) => () => {
+      const args = [bundle, "--model", id, "--models-dir", modelsDirectory];
 
-    if (shouldCheck) {
-      args.push("--check");
-    }
+      if (shouldCheck) {
+        args.push("--check");
+      }
 
-    const { status } = spawnSync(process.execPath, args, { stdio: "inherit" });
+      return runModel(args);
+    }),
+    Math.min(models.length, os.availableParallelism()),
+  );
+  const failed = results.find(({ status }) => status !== 0);
 
-    if (status !== 0) {
-      process.exit(status ?? 1);
-    }
+  if (failed) {
+    process.exit(failed.status ?? 1);
   }
 };
 
-main();
+await main();
