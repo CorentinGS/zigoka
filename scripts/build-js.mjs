@@ -71,6 +71,21 @@ const substituteConstants19 = {
   },
 };
 
+// The 19×19 page of the site (site/19x19.html): the same page and worker, built with the
+// 19×19 constants.
+const browserBundles19 = [
+  {
+    entryPoints: [resolve("site/play.ts")],
+    outfile: resolve("site/dist/19x19/play.js"),
+    plugins: [substituteConstants19],
+  },
+  {
+    entryPoints: [resolve("site/engine-worker.ts")],
+    outfile: resolve("site/dist/19x19/engine-worker.js"),
+    plugins: [substituteConstants19],
+  },
+];
+
 const nodeBundles = [
   {
     entryPoints: [resolve("oracle/generate-fixtures.ts")],
@@ -109,7 +124,7 @@ const nodeBundles = [
   },
 ];
 
-const buildBundle = async ({ entryPoints, outfile }) => {
+const buildBundle = async ({ entryPoints, outfile, plugins = [] }) => {
   await build({
     bundle: true,
     entryPoints,
@@ -117,6 +132,7 @@ const buildBundle = async ({ entryPoints, outfile }) => {
     logLevel: "warning",
     outfile,
     platform: "browser",
+    plugins,
     target: BROWSER_TARGET,
   });
 };
@@ -240,7 +256,7 @@ const writeBenchmarkInputs = (id) => {
 };
 
 const main = async () => {
-  for (const bundle of browserBundles) {
+  for (const bundle of [...browserBundles, ...browserBundles19]) {
     await buildBundle(bundle);
   }
 

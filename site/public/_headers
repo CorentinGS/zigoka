@@ -18,3 +18,11 @@
 /engine-worker.js
   Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'
 
+/19x19/
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self'; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/19x19/index.html
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self'; connect-src 'self' https://cloudflareinsights.com; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'
+
+/19x19/engine-worker.js
+  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'

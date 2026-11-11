@@ -11,8 +11,11 @@ const CELL_SIZE = 40;
 const COORDINATE_MARGIN = 30;
 const PLAIN_MARGIN = 24;
 const STONE_RADIUS = 18;
-const STAR_POINTS = [20, 24, 40, 56, 60];
-const COLUMN_LABELS = "ABCDEFGHJ";
+// Star points of the two board sizes the bundles are built for (the 3-3 / 4-4 points and the center).
+const STAR_POINTS =
+  (GO_BOARD_SIZE as number) === 19 ? [60, 66, 72, 174, 180, 186, 288, 294, 300] : [20, 24, 40, 56, 60];
+// Go columns skip the letter I.
+const COLUMN_LABELS = "ABCDEFGHJKLMNOPQRST";
 
 type GobanView = {
   board: ArrayLike<number>;

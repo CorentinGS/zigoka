@@ -4,14 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>About — Zigoka</title>
-    <meta name="description" content="How Zigoka plays 9×9 Go in your browser." />
-    <link rel="stylesheet" href="./site.css?v=df156576f5ce" />
+    <meta name="description" content="How Zigoka plays 9×9 and 19×19 Go in your browser." />
+    <link rel="stylesheet" href="./site.css?v=c6a6c877dd3e" />
   </head>
   <body>
     <main>
       <header>
         <h1>Zigoka</h1>
-        <nav><a href="./index.html">Play</a></nav>
+        <nav><a href="./index.html">Play 9×9</a> · <a href="./19x19/">Play 19×19</a></nav>
       </header>
       <article>
         <section>
@@ -19,15 +19,21 @@
           <p>
             Written in Zig, compiled to WebAssembly. Beginner plays the network's top
             move; the other levels add a PUCT tree search, which thinks for 0.3 s at
-            Medium and 1 s at Strong.
+            Medium and 1 s at Strong. The 19×19 network is larger and the board has
+            more points, so a search there sees fewer positions in the same time.
           </p>
         </section>
         <section>
           <h2>Network</h2>
           <p>
-            Moka v2 9×9 by Million Software, MIT license
+            9×9: Moka v2 by Million Software, MIT license
             (<a href="./moka-license.txt">license</a>,
             <a href="./moka-notices.txt">notices</a>).
+          </p>
+          <p>
+            19×19: moka-19, which starts from the Moka v2 trunk and is distilled from
+            the KataGo network kata1-b18c384nbt-s9996604416-d4316597426
+            (<a href="./katago-network-license.txt">KataGo network license</a>).
           </p>
         </section>
         <section>

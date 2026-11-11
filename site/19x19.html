@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zigoka — 19×19 Go</title>
+    <meta
+      name="description"
+      content="Play 19×19 Go against a Zig/WebAssembly engine, in your browser."
+    />
+    <link rel="stylesheet" href="../site.css" />
+    <script type="module" src="./play.js"></script>
+  </head>
+  <body data-state="loading" data-size="19">
+    <noscript>
+      <p class="warning">This page needs JavaScript: the engine runs in your browser.</p>
+    </noscript>
+    <main>
+      <header>
+        <h1>Zigoka</h1>
+        <p>19×19 Go against a Zig/WebAssembly engine, running in your browser.</p>
+        <nav><a href="../">9×9</a> · <a href="../about.html">About</a></nav>
+      </header>
+      <div class="board-area">
+        <svg id="board" role="img" aria-label="19×19 Go board"></svg>
+        <p id="status">Loading the engine…</p>
+      </div>
+      <section>
+        <div class="controls">
+          <label for="level">Level</label>
+          <select id="level">
+            <option value="beginner">Beginner</option>
+            <option value="easy">Easy</option>
+            <option value="medium">Medium (0.3 s)</option>
+            <option value="strong">Strong (1 s)</option>
+          </select>
+          <label for="color">Color</label>
+          <select id="color">
+            <option value="black">Black</option>
+            <option value="white">White</option>
+          </select>
+        </div>
+        <div class="controls">
+          <button id="pass" type="button" disabled>Pass</button>
+          <button id="resign" type="button" disabled>Resign</button>
+          <button id="undo" type="button" disabled>Undo</button>
+          <button id="accept" type="button" disabled>Accept score</button>
+          <button id="new-game" type="button" disabled>New game</button>
+        </div>
+        <h2>Moves</h2>
+        <ol id="moves"></ol>
+      </section>
+      <footer>
+        <p>
+          Network: moka-19, distilled from KataGo, from the Moka v2 trunk by Million
+          Software (<a href="../about.html">licenses</a>).
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>

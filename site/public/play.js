@@ -18,8 +18,8 @@ var CELL_SIZE = 40;
 var COORDINATE_MARGIN = 30;
 var PLAIN_MARGIN = 24;
 var STONE_RADIUS = 18;
-var STAR_POINTS = [20, 24, 40, 56, 60];
-var COLUMN_LABELS = "ABCDEFGHJ";
+var STAR_POINTS = GO_BOARD_SIZE === 19 ? [60, 66, 72, 174, 180, 186, 288, 294, 300] : [20, 24, 40, 56, 60];
+var COLUMN_LABELS = "ABCDEFGHJKLMNOPQRST";
 var getColorName = (color) => color === GO_BLACK_COLOR ? "black" : "white";
 var formatMove = (move) => move === GO_PASS_MOVE ? "pass" : `${COLUMN_LABELS[move % GO_BOARD_SIZE]}${GO_BOARD_SIZE - Math.floor(move / GO_BOARD_SIZE)}`;
 var formatScore = (score) => {

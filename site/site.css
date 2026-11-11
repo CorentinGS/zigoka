@@ -92,6 +92,19 @@ a {
   cursor: pointer;
 }
 
+/* The 19×19 page: a wider layout, so that a point stays large enough to click. */
+body[data-size="19"] main {
+  max-width: 1200px;
+}
+
+body[data-size="19"] .board-area {
+  flex-basis: 560px;
+}
+
+body[data-size="19"] #board {
+  max-width: 780px;
+}
+
 #status {
   min-height: 1.5em;
   margin: 12px 0 0;
@@ -212,6 +225,7 @@ body[data-state="error"] #status {
 
 @media (max-width: 720px) {
   .board-area,
+  body[data-size="19"] .board-area,
   section {
     flex-basis: 100%;
   }

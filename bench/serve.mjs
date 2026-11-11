@@ -66,7 +66,9 @@ const resolveRequestPath = (urlPath) => {
     }
 
     const servedDirectory = path.join(rootDirectory, directory);
-    const resolved = path.resolve(servedDirectory, urlPath.slice(prefix.length + 2));
+    // A directory serves its index.html, as Cloudflare Pages does (/site/19x19/).
+    const relativePath = urlPath.slice(prefix.length + 2);
+    const resolved = path.resolve(servedDirectory, relativePath.endsWith("/") ? `${relativePath}index.html` : relativePath);
 
     return resolved.startsWith(`${servedDirectory}${path.sep}`) ? resolved : null;
   }

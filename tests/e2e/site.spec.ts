@@ -140,3 +140,24 @@ test("after both sides pass, the player marks dead stones and accepts the score"
   await expect(status).toHaveText(new RegExp(`^Game over: ${SCORE}$`));
   await expect(page.locator("#accept")).toBeDisabled();
 });
+
+test("the 19×19 page answers a human move", async ({ page }) => {
+  test.setTimeout(TEST_TIMEOUT_MS);
+  // The directory itself, as Cloudflare Pages serves it.
+  await page.goto("/site/19x19/");
+  await expect(page.locator("body")).toHaveAttribute("data-state", "human", {
+    timeout: LOADING_TIMEOUT_MS,
+  });
+  await expect(page.locator("#board [data-move]")).toHaveCount(19 * 19);
+
+  // The center point, K10.
+  await page.locator('#board [data-move="180"]').click();
+
+  await expect(page.locator("#board [data-stone]")).toHaveCount(2, {
+    timeout: ENGINE_REPLY_TIMEOUT_MS,
+  });
+  await expect(page.locator("body")).toHaveAttribute("data-state", "human", {
+    timeout: ENGINE_REPLY_TIMEOUT_MS,
+  });
+  await expect(page.locator("#moves li").first()).toContainText("K10");
+});
