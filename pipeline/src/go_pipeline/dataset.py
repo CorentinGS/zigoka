@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .shards import load_shards
+from .shards import packed_bytes, read_shard, shard_dirs
 
 
 def load_npz(path: str) -> dict[str, np.ndarray]:
@@ -93,22 +93,57 @@ def load_training_data(paths: list[str], visits_mix: float = 0.5, outcome_mix: f
     where the position was searched, raw elsewhere; value = (1 -
     outcome_mix) · search value (raw value where not searched) +
     outcome_mix · game result where the result is known.
+
+    Shards are read one at a time into arrays sized for the whole set: the
+    float32 policies of a whole 19×19 corpus would peak at about 10 KB per
+    position, against 1.6 KB for the targets kept. Game ids are offset per
+    shard as in shards.load_shards.
     """
     if len(paths) == 1 and Path(paths[0]).suffix == ".npz":
         data = load_npz(paths[0])
         return TrainingData(size=data["features"].shape[-1], policy=data["policy"].astype(np.float32),
                             value=data["value"].astype(np.float32), game_id=data["game_id"],
                             features=data["features"].astype(np.float32))
-    data, size = load_shards(paths)
-    searched = np.asarray(data["has_search"])
-    raw = np.asarray(data["policy_raw"], dtype=np.float32)
-    visits = np.asarray(data["policy_visits"], dtype=np.float32)
-    policy = np.where(searched[:, None], visits_mix * visits + (1 - visits_mix) * raw, raw)
-    value = np.where(searched, data["value_search"], data["value_raw"]).astype(np.float32)
-    outcome = np.asarray(data["outcome"], dtype=np.float32)
-    known = np.isfinite(outcome)
-    value[known] = (1 - outcome_mix) * value[known] + outcome_mix * outcome[known]
-    return TrainingData(size=size, policy=policy.astype(np.float16), value=value, game_id=np.asarray(data["game_id"]),
-                        planes=np.asarray(data["planes"]), komi=np.asarray(data["komi_feature"], dtype=np.float32),
-                        ownership=np.asarray(data["ownership"]), has_ownership=np.asarray(data["has_ownership"]),
-                        score=(np.asarray(data["score_lead"], dtype=np.float32) / score_scale), has_score=searched)
+    directories, size, rows = [], None, 0
+    for directory in shard_dirs(paths):
+        _, meta = read_shard(directory, mmap=True)
+        if size is None:
+            size = meta["boardSize"]
+        elif meta["boardSize"] != size:
+            raise ValueError(f"{directory}: board size {meta['boardSize']} differs from {size}")
+        if meta["rows"]:
+            directories.append(directory)
+            rows += meta["rows"]
+    if not directories:
+        raise ValueError(f"every shard in {paths} is empty")
+    area = size * size
+    out = TrainingData(size=size, policy=np.empty((rows, area + 1), np.float16), value=np.empty(rows, np.float32),
+                       game_id=np.empty(rows, np.int64), planes=np.empty((rows, packed_bytes(size)), np.uint8),
+                       komi=np.empty(rows, np.float32), ownership=np.empty((rows, area), np.int8),
+                       has_ownership=np.empty(rows, np.bool_), score=np.empty(rows, np.float32),
+                       has_score=np.empty(rows, np.bool_))
+    start, offset = 0, 0
+    for directory in directories:
+        data, meta = read_shard(directory, mmap=True)
+        part = slice(start, start + meta["rows"])
+        start = part.stop
+        game_id = np.asarray(data["game_id"]) + offset
+        offset = int(game_id.max()) + 1
+        searched = np.asarray(data["has_search"])
+        raw = np.asarray(data["policy_raw"], dtype=np.float32)
+        visits = np.asarray(data["policy_visits"], dtype=np.float32)
+        policy = np.where(searched[:, None], visits_mix * visits + (1 - visits_mix) * raw, raw)
+        value = np.where(searched, data["value_search"], data["value_raw"]).astype(np.float32)
+        outcome = np.asarray(data["outcome"], dtype=np.float32)
+        known = np.isfinite(outcome)
+        value[known] = (1 - outcome_mix) * value[known] + outcome_mix * outcome[known]
+        out.policy[part] = policy.astype(np.float16)
+        out.value[part] = value
+        out.game_id[part] = game_id
+        out.planes[part] = data["planes"]
+        out.komi[part] = np.asarray(data["komi_feature"], dtype=np.float32)
+        out.ownership[part] = data["ownership"]
+        out.has_ownership[part] = data["has_ownership"]
+        out.score[part] = np.asarray(data["score_lead"], dtype=np.float32) / score_scale
+        out.has_score[part] = searched
+    return out
