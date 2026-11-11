@@ -77,7 +77,9 @@ const getPassDeadMoves = (state: GoGameState) => {
  * so the search passed instead of playing captures that the final score then counted.
  */
 const getSearchScore = (state: GoGameState) => {
-  const deadMoves = GO_BOARD_SIZE === 19 ? getPassDeadMoves(state) : getAutomaticallyDeadMoves(state);
+  // The size is a literal type (9) until a 19×19 bundle substitutes the constants.
+  const deadMoves =
+    (GO_BOARD_SIZE as number) === 19 ? getPassDeadMoves(state) : getAutomaticallyDeadMoves(state);
 
   return getAreaScore(removeDeadStones(state, deadMoves));
 };
