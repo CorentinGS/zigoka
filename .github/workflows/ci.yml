@@ -14,4 +14,29 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: zig fmt --check src tools build.zig
       - run: pnpm exec tsc --noEmit
-      - run: pnpm check:all
+      # Zig's cache is content-addressed: a cache from an older commit only saves work.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('mise.toml', 'build.zig', 'src/**', 'tools/**', 'models/**', 'vendor/*/model/**') }}
+          restore-keys: zig-${{ runner.os }}-
+      # The steps of `pnpm check:all`, with the oracle fixtures cached. The key covers
+      # everything the generator reads: the oracle, Moka's code and models, the bundling,
+      # the toolchain. Any change to them regenerates the fixtures and checks that a
+      # second generation gives the same bytes; the cache is saved only if the job passes.
+      - id: oracle-fixtures
+        uses: actions/cache@v4
+        with:
+          path: oracle/fixtures
+          key: oracle-fixtures-${{ hashFiles('mise.toml', 'package.json', 'pnpm-lock.yaml', 'build.zig', 'oracle/*.ts', 'oracle/*.json', 'vendor/**', 'models/**', 'scripts/build-js.mjs', 'scripts/run-oracle.mjs') }}
+      - run: pnpm gen
+      - run: pnpm build
+      - run: pnpm models:check
+      - if: steps.oracle-fixtures.outputs.cache-hit != 'true'
+        run: pnpm oracle
+      - if: steps.oracle-fixtures.outputs.cache-hit != 'true'
+        run: pnpm oracle:check
+      - run: pnpm test
+      - run: pnpm test:e2e
