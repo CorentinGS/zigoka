@@ -51,7 +51,14 @@ interface SearchExports extends InferExports {
   search_child_visits: (index: number) => number;
 }
 
-type SearchOptions = { timeMs: number; maxVisits?: number; batch?: number; reuse?: boolean };
+type SearchOptions = {
+  timeMs: number;
+  maxVisits?: number;
+  batch?: number;
+  reuse?: boolean;
+  /** The clock the budget is read on, in milliseconds: `performance.now` unless a test simulates one. */
+  now?: () => number;
+};
 
 type SearchOutcome = { move: number; visits: number; reused: number; poolFull: boolean };
 
@@ -107,9 +114,9 @@ const toSearchEngine = (exports: SearchExports): SearchEngine => {
 
   const search = (
     state: GoGameState,
-    { timeMs, maxVisits = Infinity, batch = 1, reuse = false }: SearchOptions,
+    { timeMs, maxVisits = Infinity, batch = 1, reuse = false, now = () => performance.now() }: SearchOptions,
   ) => {
-    const startedAt = performance.now();
+    const startedAt = now();
     const deadline = startedAt + timeMs;
 
     writePosition(exports, state);
@@ -118,22 +125,23 @@ const toSearchEngine = (exports: SearchExports): SearchEngine => {
     const reused = exports.search_visits();
 
     if (exports.search_reused() === 0) {
-      rootMs = performance.now() - startedAt;
+      rootMs = now() - startedAt;
     }
 
     let visits = reused;
     let chunk = 1;
     let poolFull = false;
+    const runStartedAt = now();
 
     while (visits < maxVisits) {
-      const chunkStartedAt = performance.now();
+      const chunkStartedAt = now();
 
       if (chunkStartedAt >= deadline) {
         break;
       }
 
       const status = exports.search_run(Math.min(maxVisits, visits + chunk, MAX_TARGET), batch);
-      const finishedAt = performance.now();
+      const finishedAt = now();
       const done = exports.search_visits() - visits;
 
       visits += done;
@@ -145,9 +153,14 @@ const toSearchEngine = (exports: SearchExports): SearchEngine => {
 
       checkStatus(status);
 
-      const msPerVisit = Math.max((finishedAt - chunkStartedAt) / Math.max(done, 1), rootMs);
+      // The cost of a visit is read over the whole search, so a clock coarser than a chunk errs by
+      // one tick over the search, not over each chunk. Before its first tick the clock reads 0 ms:
+      // the cap of twice the visits done keeps the chunks small until it ticks.
+      const searched = Math.max(visits - reused, 1);
+      const msPerVisit = Math.max((finishedAt - runStartedAt) / searched, rootMs);
+      const maxChunk = 2 * searched;
 
-      chunk = Math.max(1, Math.floor((deadline - finishedAt) / msPerVisit / 2));
+      chunk = Math.max(1, Math.min(maxChunk, Math.floor((deadline - finishedAt) / msPerVisit / 2)));
     }
 
     return { move: exports.search_best_move(), visits, reused, poolFull };

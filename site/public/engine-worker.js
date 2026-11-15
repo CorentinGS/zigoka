@@ -103,25 +103,26 @@ var checkStatus2 = (status) => {
 };
 var toSearchEngine = (exports) => {
   let rootMs = 0;
-  const search = (state, { timeMs, maxVisits = Infinity, batch = 1, reuse = false }) => {
-    const startedAt = performance.now();
+  const search = (state, { timeMs, maxVisits = Infinity, batch = 1, reuse = false, now = () => performance.now() }) => {
+    const startedAt = now();
     const deadline = startedAt + timeMs;
     writePosition(exports, state);
     checkStatus2(exports.search_start(reuse ? 1 : 0));
     const reused = exports.search_visits();
     if (exports.search_reused() === 0) {
-      rootMs = performance.now() - startedAt;
+      rootMs = now() - startedAt;
     }
     let visits = reused;
     let chunk = 1;
     let poolFull = false;
+    const runStartedAt = now();
     while (visits < maxVisits) {
-      const chunkStartedAt = performance.now();
+      const chunkStartedAt = now();
       if (chunkStartedAt >= deadline) {
         break;
       }
       const status = exports.search_run(Math.min(maxVisits, visits + chunk, MAX_TARGET), batch);
-      const finishedAt = performance.now();
+      const finishedAt = now();
       const done = exports.search_visits() - visits;
       visits += done;
       if (status === STATUS_POOL_FULL) {
@@ -129,8 +130,10 @@ var toSearchEngine = (exports) => {
         break;
       }
       checkStatus2(status);
-      const msPerVisit = Math.max((finishedAt - chunkStartedAt) / Math.max(done, 1), rootMs);
-      chunk = Math.max(1, Math.floor((deadline - finishedAt) / msPerVisit / 2));
+      const searched = Math.max(visits - reused, 1);
+      const msPerVisit = Math.max((finishedAt - runStartedAt) / searched, rootMs);
+      const maxChunk = 2 * searched;
+      chunk = Math.max(1, Math.min(maxChunk, Math.floor((deadline - finishedAt) / msPerVisit / 2)));
     }
     return { move: exports.search_best_move(), visits, reused, poolFull };
   };

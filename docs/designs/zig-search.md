@@ -4,6 +4,19 @@
 *   **Status:** Implemented
 *   **Date:** 2026-10-31
 
+Le corps du design décrit la recherche telle qu'elle a été livrée. Ce qui a
+changé depuis :
+
+*   **Budget de temps (`js/search-engine.ts`, #1).** Le coût d'une visite se
+    lit sur toute la recherche, et non sur la dernière tranche ; une tranche
+    vise toujours la moitié du temps restant, mais jamais plus de deux fois
+    les visites déjà faites. Avec une horloge arrondie à la milliseconde,
+    comme celle d'une page sans isolation, une tranche qui lisait 0 ms
+    demandait l'arbre entier, et une recherche de 50 ms pouvait durer 1,8 s.
+    L'horloge est l'option `now` de `search`, et
+    `tests/search-budget.test.ts` fait tourner la boucle sur une horloge
+    simulée.
+
 --------------------------------------------------------------------------------
 
 ## Overview
