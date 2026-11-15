@@ -1,3 +1,4 @@
+import { fetchOk } from "../../js/fetch-ok.ts";
 import { GoModelWorkerClient } from "../../vendor/moka/src/client.ts";
 
 const WORKER_URL = "/dist/worker.js";
@@ -29,15 +30,6 @@ declare global {
   }
 }
 
-const fetchOk = async (url: string) => {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Unable to load ${url} (${response.status}).`);
-  }
-
-  return response;
-};
 
 const isWorkerCspStrict = new URLSearchParams(window.location.search).get("worker-csp") === "strict";
 const workerUrl = isWorkerCspStrict ? STRICT_WORKER_URL : WORKER_URL;

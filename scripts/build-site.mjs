@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findModel } from "../models/registry.ts";
+import { WORKER_FILES } from "../site/engine-files.ts";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Model files come from the registry module as absolute paths; the other sources are relative.
@@ -50,9 +51,7 @@ const editionFiles = ({ page, dist, modelId }) => {
     [page, "index.html"],
     [`${dist}/play.js`, "play.js"],
     [`${dist}/engine-worker.js`, "engine-worker.js"],
-    [model.wasm("search.wasm"), "search.wasm"],
-    [model.wasm("infer.wasm"), "infer.wasm"],
-    [model.weightsPath, "go-model.bin"],
+    ...WORKER_FILES.map((file) => [file === "go-model.bin" ? model.weightsPath : model.wasm(file), file]),
   ];
 };
 
@@ -64,7 +63,7 @@ const PUBLISHED_FILES = [
 ];
 
 // The worker gives its own `?v=` to the files it fetches (site/engine-worker.ts).
-const ENGINE_FILES = ["engine-worker.js", "infer.wasm", "search.wasm", "go-model.bin"];
+const ENGINE_FILES = ["engine-worker.js", ...WORKER_FILES];
 
 const publicPath = (fileName) => path.join(publicDirectory, fileName);
 

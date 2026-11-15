@@ -1,23 +1,17 @@
-import {
-  compileEngines,
-  fetchFiles,
-  type Engine,
-  type EngineFile,
-  type LoadedEngines,
-  type SearchEngine,
-} from "../js/engines.ts";
+import { fetchFiles, loadEngines, type Engine, type LoadedEngines, type SearchEngine } from "../js/engines.ts";
 import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
 import {
   encodeStudentFeatures,
   selectHighestLegalMove,
 } from "../vendor/moka/src/game.ts";
+import { WORKER_FILES } from "./engine-files.ts";
 import { LEVEL_BY_ID, type SiteWorkerRequest, type SiteWorkerResponse } from "./protocol.ts";
 
-const ENGINE_FILES: EngineFile[] = ["infer.wasm", "search.wasm", "go-model.bin"];
-
-type LoadedEngine = {
-  engines: LoadedEngines;
-  engine: Engine;
+type SiteEngines = {
+  /** Creates the search engine of each game. */
+  loaded: LoadedEngines<"infer.wasm" | "search.wasm">;
+  /** Plays the levels that do not search. */
+  inferEngine: Engine;
 };
 
 const post = (response: SiteWorkerResponse) => self.postMessage(response);
@@ -33,39 +27,35 @@ const assetUrl = (fileName: string) => {
   return url.href;
 };
 
-const loadEngine = async (): Promise<LoadedEngine> => {
-  const read = fetchFiles(Object.fromEntries(ENGINE_FILES.map((file) => [file, assetUrl(file)])));
-  const [compiled, weights] = await Promise.all([
-    compileEngines(read, ["infer.wasm", "search.wasm"]),
-    read("go-model.bin"),
-  ]);
-  const engines = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
+const loadSiteEngines = async (): Promise<SiteEngines> => {
+  const read = fetchFiles(Object.fromEntries(WORKER_FILES.map((file) => [file, assetUrl(file)])));
+  const loaded = await loadEngines(read, ["infer.wasm", "search.wasm"], { boardSize: GO_BOARD_SIZE });
 
-  return { engines, engine: await engines.createEngine() };
+  return { loaded, inferEngine: await loaded.createEngine() };
 };
 
-let loadedEngine: LoadedEngine | null = null;
+let siteEngines: SiteEngines | null = null;
 let searchEngine: SearchEngine | null = null;
 let pendingMessages: Promise<void> = Promise.resolve();
 
 const handleInit = async () => {
   const startedAt = performance.now();
 
-  loadedEngine = await loadEngine();
+  siteEngines = await loadSiteEngines();
   post({ type: "ready", durationMs: performance.now() - startedAt });
 };
 
 const handleNewGame = async () => {
-  if (!loadedEngine) {
+  if (!siteEngines) {
     throw new Error("The site engine worker is not initialized.");
   }
 
   // Every game gets a new search engine, so a new search tree.
-  searchEngine = await loadedEngine.engines.createSearchEngine();
+  searchEngine = await siteEngines.loaded.createSearchEngine();
 };
 
 const handleMove = async (request: Extract<SiteWorkerRequest, { type: "move" }>) => {
-  if (!loadedEngine) {
+  if (!siteEngines) {
     throw new Error("The site engine worker is not initialized.");
   }
 
@@ -91,7 +81,7 @@ const handleMove = async (request: Extract<SiteWorkerRequest, { type: "move" }>)
   } else {
     move = selectHighestLegalMove(
       request.state,
-      loadedEngine.engine.infer(encodeStudentFeatures(request.state)).policyLogits,
+      siteEngines.inferEngine.infer(encodeStudentFeatures(request.state)).policyLogits,
     );
     visits = 1;
   }

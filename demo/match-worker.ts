@@ -1,6 +1,7 @@
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
-import { compileEngines, fetchFiles, type Engine, type LoadedEngines } from "../js/engines.ts";
+import { fetchFiles, loadEngines, type Engine, type LoadedEngines } from "../js/engines.ts";
+import { fetchOk } from "../js/fetch-ok.ts";
 import {
   createOpenings,
   createPlayer,
@@ -18,29 +19,22 @@ const read = fetchFiles({
   "search.wasm": "/demo/dist/search.wasm",
 });
 
-type LoadedModel = { loaded: LoadedEngines; zig: Engine; moka: GoModelRuntime };
+/** What both players share; each has a search engine of its own (createEngines). */
+type SharedEngines = {
+  loaded: LoadedEngines<"infer.wasm" | "search.wasm">;
+  zig: Engine;
+  moka: GoModelRuntime;
+};
 
 type Players = { first: ReturnType<typeof createPlayer>; second: ReturnType<typeof createPlayer> };
 
 const post = (response: MatchWorkerResponse) => self.postMessage(response);
 
-const fetchManifest = async () => {
-  const response = await fetch(MANIFEST_URL);
-
-  if (!response.ok) {
-    throw new Error(`${MANIFEST_URL} answered ${response.status}.`);
-  }
-
-  return (await response.json()) as GoModelManifest;
-};
-
-const loadModel = async (): Promise<LoadedModel> => {
-  const [compiled, weights, manifest] = await Promise.all([
-    compileEngines(read, ["infer.wasm", "search.wasm"]),
-    read("go-model.bin"),
-    fetchManifest(),
+const loadSharedEngines = async (): Promise<SharedEngines> => {
+  const [loaded, manifest] = await Promise.all([
+    loadEngines(read, ["infer.wasm", "search.wasm"], { boardSize: GO_BOARD_SIZE }),
+    fetchOk(MANIFEST_URL).then(async (response) => (await response.json()) as GoModelManifest),
   ]);
-  const loaded = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
   const zig = await loaded.createEngine();
   const moka = GoModelRuntime.create(manifest, loaded.weights);
 
@@ -48,7 +42,7 @@ const loadModel = async (): Promise<LoadedModel> => {
 };
 
 /** Each set of engines has a search engine, and so a search tree, of its own. */
-const createEngines = async ({ loaded, zig, moka }: LoadedModel): Promise<Engines> => {
+const createEngines = async ({ loaded, zig, moka }: SharedEngines): Promise<Engines> => {
   const searchEngine = await loaded.createSearchEngine();
 
   return {
@@ -67,14 +61,14 @@ const handleRequest = async (request: MatchWorkerRequest) => {
 
     const { first, second } = request.config;
 
-    const model = await loadModel();
+    const shared = await loadSharedEngines();
 
-    engines = await createEngines(model);
+    engines = await createEngines(shared);
     players = {
       first: createPlayer(first, engines, request.config, getTimeMs(request.config, "first")),
       second: createPlayer(
         second,
-        usesSearchWasm(first) && usesSearchWasm(second) ? await createEngines(model) : engines,
+        usesSearchWasm(first) && usesSearchWasm(second) ? await createEngines(shared) : engines,
         request.config,
         getTimeMs(request.config, "second"),
       ),

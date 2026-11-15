@@ -77,9 +77,15 @@ const toProfileEngine = (exports: ProfileExports): ProfileEngine => {
 
   return {
     ...toEngine(exports),
+    // The bench's trunk alone: its errors keep the status, which no worker client sees.
     forwardTrunk: (features: Float32Array) => {
       writeInput(features);
-      checkStatus(exports.forward_trunk(1));
+
+      const status = exports.forward_trunk(1);
+
+      if (status !== STATUS_OK) {
+        throw new Error(`forward_trunk(1) returned status ${status}.`);
+      }
     },
   };
 };

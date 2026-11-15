@@ -1,6 +1,7 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
-import { compileEngines, fetchFiles, type ReadFile } from "../js/engines.ts";
+import { compileEngines, fetchFiles, loadEngines, type ReadFile } from "../js/engines.ts";
+import { fetchOk } from "../js/fetch-ok.ts";
 import { findParityMismatch } from "./parity-rule.ts";
 
 const DEFAULT_MODEL_ID = "moka-9";
@@ -86,15 +87,8 @@ const loadFloat32 = async (url: string): Promise<Float32Array> =>
 const loadFloat64 = async (url: string): Promise<Float64Array> =>
   new Float64Array(await fetchArrayBuffer(url));
 
-const loadJson = async <Content>(url: string): Promise<Content> => {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Unable to load ${url} (${response.status}).`);
-  }
-
-  return (await response.json()) as Content;
-};
+const loadJson = async <Content>(url: string): Promise<Content> =>
+  (await (await fetchOk(url)).json()) as Content;
 
 const getModelUrls = (modelId: string): ModelUrls => {
   const directory = `/bench/dist/${modelId}`;
@@ -119,15 +113,8 @@ const copyFeatures = (
   return positions.slice(start, start + featureCount);
 };
 
-const fetchArrayBuffer = async (url: string): Promise<ArrayBuffer> => {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Unable to load ${url} (${response.status}).`);
-  }
-
-  return response.arrayBuffer();
-};
+const fetchArrayBuffer = async (url: string): Promise<ArrayBuffer> =>
+  (await fetchOk(url)).arrayBuffer();
 
 const createWorkerEngine = async (workerUrl: string, urls: ModelUrls): Promise<BenchEngine> => {
   const client = new GoModelWorkerClient(new Worker(workerUrl, { type: "module" }));
@@ -188,10 +175,8 @@ const createZigMainThreadEngine = async (urls: ModelUrls, boardSize: number): Pr
 };
 
 const createZigTrunkEngine = async (urls: ModelUrls, boardSize: number): Promise<BenchEngine> => {
-  const read = readZigFiles(urls);
   const initializationStartTime = performance.now();
-  const compiled = await compileEngines(read, ["infer-profile.wasm"]);
-  const loaded = await compiled.load(await read("go-model.bin"), { boardSize });
+  const loaded = await loadEngines(readZigFiles(urls), ["infer-profile.wasm"], { boardSize });
   const engine = await loaded.createProfileEngine();
 
   return {

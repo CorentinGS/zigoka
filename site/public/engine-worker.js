@@ -41,11 +41,24 @@ var toProfileEngine = (exports) => {
   const writeInput = createInputWriter(exports);
   return {
     ...toEngine(exports),
+    // The bench's trunk alone: its errors keep the status, which no worker client sees.
     forwardTrunk: (features) => {
       writeInput(features);
-      checkStatus(exports.forward_trunk(1));
+      const status = exports.forward_trunk(1);
+      if (status !== STATUS_OK) {
+        throw new Error(`forward_trunk(1) returned status ${status}.`);
+      }
     }
   };
+};
+
+// js/fetch-ok.ts
+var fetchOk = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Unable to load ${url} (${response.status}).`);
+  }
+  return response;
 };
 
 // js/search-engine.ts
@@ -129,6 +142,20 @@ var toSearchEngine = (exports) => {
 var SHA256_BYTE_COUNT = 32;
 var SHA256_PREFIX_LENGTH = 8;
 var SIMD_ERROR = "WebAssembly SIMD is not supported in this browser.";
+var ENGINE_KINDS = {
+  "infer.wasm": {
+    create: "createEngine",
+    toEngine: (exports) => toEngine(exports)
+  },
+  "search.wasm": {
+    create: "createSearchEngine",
+    toEngine: (exports) => toSearchEngine(exports)
+  },
+  "infer-profile.wasm": {
+    create: "createProfileEngine",
+    toEngine: (exports) => toProfileEngine(exports)
+  }
+};
 var toHex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 var describeBlockedCompilation = (location) => `WebAssembly compilation was blocked; the Content Security Policy of ${location.pathname.split("/").pop() || "this page"} must allow 'wasm-unsafe-eval'.`;
 var compileWasm = async (bytes) => {
@@ -142,53 +169,56 @@ var compileWasm = async (bytes) => {
     throw location ? new Error(describeBlockedCompilation(location)) : error;
   }
 };
+var instantiate = async (file, module, weights, sha256, boardSize) => {
+  const instance = await WebAssembly.instantiate(module, {});
+  const exports = instance.exports;
+  const engineBoardSize = exports.board_size();
+  if (engineBoardSize !== boardSize) {
+    throw new Error(
+      `${file} plays ${engineBoardSize}\xD7${engineBoardSize} games; this host plays ${boardSize}\xD7${boardSize}.`
+    );
+  }
+  const memory = exports.memory.buffer;
+  const weightsCapacity = exports.weights_capacity();
+  if (weights.byteLength !== weightsCapacity) {
+    throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
+  }
+  const expectedSha256 = toHex(new Uint8Array(memory, exports.expected_sha256_ptr(), SHA256_BYTE_COUNT));
+  if (sha256 !== expectedSha256) {
+    throw new Error(
+      `Model weights do not match this engine build (expected sha256 ${expectedSha256.slice(0, SHA256_PREFIX_LENGTH)}\u2026).`
+    );
+  }
+  new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
+  exports.load_weights();
+  return exports;
+};
 var compileEngines = async (read, files) => {
-  const modules = new Map(
-    await Promise.all(
-      files.map(async (file) => [file, await compileWasm(await read(file))])
-    )
+  const modules = await Promise.all(
+    files.map(async (file) => [file, await compileWasm(await read(file))])
   );
   return {
     load: async (weights, { boardSize }) => {
       const sha256 = await getBufferSha256(weights);
-      const instantiate = async (file) => {
-        const module = modules.get(file);
-        if (!module) {
-          throw new Error(`${file} was not compiled: pass it to compileEngines.`);
-        }
-        const instance = await WebAssembly.instantiate(module, {});
-        const exports = instance.exports;
-        const engineBoardSize = exports.board_size();
-        if (engineBoardSize !== boardSize) {
-          throw new Error(
-            `${file} plays ${engineBoardSize}\xD7${engineBoardSize} games; this host plays ${boardSize}\xD7${boardSize}.`
-          );
-        }
-        const memory = exports.memory.buffer;
-        const weightsCapacity = exports.weights_capacity();
-        if (weights.byteLength !== weightsCapacity) {
-          throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
-        }
-        const expectedSha256 = toHex(
-          new Uint8Array(memory, exports.expected_sha256_ptr(), SHA256_BYTE_COUNT)
-        );
-        if (sha256 !== expectedSha256) {
-          throw new Error(
-            `Model weights do not match this engine build (expected sha256 ${expectedSha256.slice(0, SHA256_PREFIX_LENGTH)}\u2026).`
-          );
-        }
-        new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
-        exports.load_weights();
-        return exports;
-      };
-      return {
-        weights,
-        createEngine: async () => toEngine(await instantiate("infer.wasm")),
-        createSearchEngine: async () => toSearchEngine(await instantiate("search.wasm")),
-        createProfileEngine: async () => toProfileEngine(await instantiate("infer-profile.wasm"))
-      };
+      const creators = await Promise.all(
+        modules.map(async ([file, module]) => {
+          const create = () => instantiate(file, module, weights, sha256, boardSize);
+          let checked = await create();
+          const createEngine = async () => {
+            const exports = checked ?? await create();
+            checked = null;
+            return ENGINE_KINDS[file].toEngine(exports);
+          };
+          return [ENGINE_KINDS[file].create, createEngine];
+        })
+      );
+      return { weights, ...Object.fromEntries(creators) };
     }
   };
+};
+var loadEngines = async (read, files, options) => {
+  const [compiled, weights] = await Promise.all([compileEngines(read, files), read("go-model.bin")]);
+  return compiled.load(weights, options);
 };
 var fetchFiles = (urls) => async (file) => {
   const url = urls[file];
@@ -196,11 +226,7 @@ var fetchFiles = (urls) => async (file) => {
     throw new Error(`No URL given for ${file}.`);
   }
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`${url} answered ${response.status}.`);
-    }
-    return await response.arrayBuffer();
+    return await (await fetchOk(url)).arrayBuffer();
   } catch {
     throw new Error(`Failed to load ${file}.`);
   }
@@ -403,6 +429,9 @@ var encodeStudentFeatures = (gameState) => {
   return features;
 };
 
+// site/engine-files.ts
+var WORKER_FILES = ["infer.wasm", "search.wasm", "go-model.bin"];
+
 // site/protocol.ts
 var LEVELS = [
   { id: "beginner", label: "Beginner", usesSearch: false, timeMs: 0 },
@@ -413,38 +442,33 @@ var LEVELS = [
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 
 // site/engine-worker.ts
-var ENGINE_FILES = ["infer.wasm", "search.wasm", "go-model.bin"];
 var post = (response) => self.postMessage(response);
 var assetUrl = (fileName) => {
   const url = new URL(`./${fileName}`, import.meta.url);
   url.search = new URL(import.meta.url).search;
   return url.href;
 };
-var loadEngine = async () => {
-  const read = fetchFiles(Object.fromEntries(ENGINE_FILES.map((file) => [file, assetUrl(file)])));
-  const [compiled, weights] = await Promise.all([
-    compileEngines(read, ["infer.wasm", "search.wasm"]),
-    read("go-model.bin")
-  ]);
-  const engines = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
-  return { engines, engine: await engines.createEngine() };
+var loadSiteEngines = async () => {
+  const read = fetchFiles(Object.fromEntries(WORKER_FILES.map((file) => [file, assetUrl(file)])));
+  const loaded = await loadEngines(read, ["infer.wasm", "search.wasm"], { boardSize: GO_BOARD_SIZE });
+  return { loaded, inferEngine: await loaded.createEngine() };
 };
-var loadedEngine = null;
+var siteEngines = null;
 var searchEngine = null;
 var pendingMessages = Promise.resolve();
 var handleInit = async () => {
   const startedAt = performance.now();
-  loadedEngine = await loadEngine();
+  siteEngines = await loadSiteEngines();
   post({ type: "ready", durationMs: performance.now() - startedAt });
 };
 var handleNewGame = async () => {
-  if (!loadedEngine) {
+  if (!siteEngines) {
     throw new Error("The site engine worker is not initialized.");
   }
-  searchEngine = await loadedEngine.engines.createSearchEngine();
+  searchEngine = await siteEngines.loaded.createSearchEngine();
 };
 var handleMove = async (request) => {
-  if (!loadedEngine) {
+  if (!siteEngines) {
     throw new Error("The site engine worker is not initialized.");
   }
   const level = LEVEL_BY_ID[request.level] ?? LEVEL_BY_ID.beginner;
@@ -466,7 +490,7 @@ var handleMove = async (request) => {
   } else {
     move = selectHighestLegalMove(
       request.state,
-      loadedEngine.engine.infer(encodeStudentFeatures(request.state)).policyLogits
+      siteEngines.inferEngine.infer(encodeStudentFeatures(request.state)).policyLogits
     );
     visits = 1;
   }

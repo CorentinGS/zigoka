@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { ReadFile } from "../js/engines.ts";
+
 /** The wasm files `zig build` makes for each model, with the step that builds each one. */
 const WASM_STEPS = {
   "infer.wasm": "wasm",
@@ -34,7 +36,7 @@ type ModelFiles = {
   /** The path of a wasm file if it is built, for the callers to whom it is optional. */
   wasmIfBuilt: (name: WasmName) => string | null;
   /** Reads a built wasm file or the weights: the Node adapter of js/engines.ts. */
-  read: (file: WasmName | "go-model.bin") => Promise<ArrayBuffer>;
+  read: ReadFile;
 };
 
 type Registration =

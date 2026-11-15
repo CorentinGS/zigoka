@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { compileEngines, fetchFiles, type ReadFile } from "../js/engines.ts";
+import { compileEngines, fetchFiles, loadEngines, type ReadFile } from "../js/engines.ts";
 import { findModel } from "../models/registry.ts";
 
 type MokaRules = typeof import("./moka-rules.ts");
@@ -17,43 +19,36 @@ const loadRules = async () =>
 const loadWith = async (weights: ArrayBuffer, boardSize = model.boardSize) =>
   (await compileEngines(model.read, ["infer.wasm", "search.wasm"])).load(weights, { boardSize });
 
-test("an engine refuses a host that plays another board, and names both sizes", async () => {
-  const loaded = await loadWith(await model.read("go-model.bin"), 19);
-
-  await assert.rejects(loaded.createEngine(), {
-    message: "infer.wasm plays 9×9 games; this host plays 19×19.",
+test("load refuses a host that plays another board, and names both sizes", async () => {
+  await assert.rejects(loadWith(await model.read("go-model.bin"), 19), {
+    message: /^(infer|search)\.wasm plays 9×9 games; this host plays 19×19\.$/,
   });
 });
 
-test("an engine refuses weights of the wrong length", async () => {
+test("load refuses weights of the wrong length", async () => {
   const weights = await model.read("go-model.bin");
-  const loaded = await loadWith(weights.slice(0, weights.byteLength - 1));
 
-  await assert.rejects(loaded.createEngine(), {
+  await assert.rejects(loadWith(weights.slice(0, weights.byteLength - 1)), {
     message: `Model weights have the wrong length (expected ${weights.byteLength} bytes).`,
   });
 });
 
-test("an engine refuses weights of another build", async () => {
+test("load refuses weights of another build", async () => {
   const weights = await model.read("go-model.bin");
-  const bytes = new Uint8Array(weights);
 
-  bytes[0] ^= 1;
+  new Uint8Array(weights)[0] ^= 1;
 
-  const loaded = await loadWith(weights);
-
-  await assert.rejects(loaded.createSearchEngine(), {
+  await assert.rejects(loadWith(weights), {
     message: /^Model weights do not match this engine build \(expected sha256 [0-9a-f]{8}…\)\.$/,
   });
 });
 
-test("an engine needs its wasm file compiled, and names the missing file", async () => {
-  const compiled = await compileEngines(model.read, ["infer.wasm"]);
-  const loaded = await compiled.load(await model.read("go-model.bin"), { boardSize: model.boardSize });
+test("only the compiled files have a create method", async () => {
+  const loaded = await loadEngines(model.read, ["infer.wasm"], { boardSize: model.boardSize });
 
-  await assert.rejects(loaded.createSearchEngine(), {
-    message: "search.wasm was not compiled: pass it to compileEngines.",
-  });
+  // @ts-expect-error search.wasm was not compiled.
+  assert.equal(loaded.createSearchEngine, undefined);
+  assert.equal(typeof loaded.createEngine, "function");
 });
 
 test("each search engine has a tree of its own, and the weights stay the host's", async () => {
@@ -84,6 +79,21 @@ test("bytes that do not validate are blamed on SIMD", async () => {
 
 test("fetchFiles names the file it could not load", async () => {
   const read = fetchFiles({ "infer.wasm": "http://127.0.0.1:1/infer.wasm" });
+
+  await assert.rejects(compileEngines(read, ["infer.wasm"]), { message: "Failed to load infer.wasm." });
+});
+
+test("fetchFiles takes an error status for a failed load, not for wasm bytes", async (t) => {
+  const server = http.createServer((_request, response) => {
+    response.statusCode = 404;
+    response.end("not found");
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const { port } = server.address() as AddressInfo;
+  const read = fetchFiles({ "infer.wasm": `http://127.0.0.1:${port}/infer.wasm` });
 
   await assert.rejects(compileEngines(read, ["infer.wasm"]), { message: "Failed to load infer.wasm." });
 });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { compileEngines } from "../js/engines.ts";
+import { loadEngines } from "../js/engines.ts";
 import { readMoves, readPosition, writePosition, type SearchEngine } from "../js/search-engine.ts";
 import { listModels, type RegisteredModel } from "../models/registry.ts";
 import { createMulberry32 } from "../oracle/mulberry32.ts";
@@ -52,9 +52,8 @@ const getBudget = ({ id, boardSize }: RegisteredModel): Budget => {
   return budget;
 };
 
-const loadEngines = async (model: RegisteredModel) => {
-  const compiled = await compileEngines(model.read, ["search.wasm", "infer.wasm"]);
-  const loaded = await compiled.load(await model.read("go-model.bin"), { boardSize: model.boardSize });
+const loadModelEngines = async (model: RegisteredModel) => {
+  const loaded = await loadEngines(model.read, ["search.wasm", "infer.wasm"], { boardSize: model.boardSize });
 
   return { searchEngine: await loaded.createSearchEngine(), inferEngine: await loaded.createEngine() };
 };
@@ -62,7 +61,7 @@ const loadEngines = async (model: RegisteredModel) => {
 const MODELS = listModels().map((model) => ({
   id: model.id,
   loadRules: () => loadRules(model.boardSize),
-  loadEngines: () => loadEngines(model),
+  loadEngines: () => loadModelEngines(model),
   ...getBudget(model),
 }));
 

@@ -71,15 +71,15 @@ type GameTiming = { index: number; slot: number; startMs: number; endMs: number 
 /** A registered model, or a local one built with `zig build -Dlocal-model`. */
 const loadEngines = async (modelId: string): Promise<Engines> => {
   const model = findModel(modelId);
-  const loadModel = async () => {
-    const compiled = await compileEngines(model.read, ["infer.wasm", "search.wasm"]);
-    const loaded = await compiled.load(await model.read("go-model.bin"), { boardSize: GO_BOARD_SIZE });
-
-    return { loaded, zig: await loaded.createEngine(), searchEngine: await loaded.createSearchEngine() };
-  };
-  const { loaded, zig, searchEngine } = await loadModel().catch((error: unknown) => {
-    throw new Error(`Model "${modelId}": ${(error as Error).message}`, { cause: error });
-  });
+  // The registry's errors (a wasm not built) name the model already; the checks of `load` do not.
+  const compiled = await compileEngines(model.read, ["infer.wasm", "search.wasm"]);
+  const loaded = await compiled
+    .load(await model.read("go-model.bin"), { boardSize: GO_BOARD_SIZE })
+    .catch((error: unknown) => {
+      throw new Error(`Model "${modelId}": ${(error as Error).message}`, { cause: error });
+    });
+  const zig = await loaded.createEngine();
+  const searchEngine = await loaded.createSearchEngine();
   const moka = GoModelRuntime.create(model.manifest, loaded.weights);
 
   crossCheck(modelId, (features) => zig.infer(features), (features) => moka.infer(features));
