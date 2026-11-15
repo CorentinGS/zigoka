@@ -22,6 +22,7 @@ const SHORT_INPUT_LENGTH = 810;
 const WEIGHTS_MISMATCH_ERROR =
   "Model weights do not match this engine build (expected sha256 35c1e51c…).";
 const WEIGHTS_LENGTH_ERROR = "Model weights have the wrong length (expected 113648 bytes).";
+const BOARD_SIZE_ERROR = "infer.wasm plays 9×9 games; this host plays 19×19.";
 const NOT_INITIALIZED_ERROR = "Go model worker is not initialized.";
 const INPUT_LENGTH_ERROR = "Input features must have 972 values.";
 const NON_FINITE_ERROR = "Model produced a non-finite output.";
@@ -29,7 +30,8 @@ const CSP_ERROR =
   "WebAssembly compilation was blocked; the Content Security Policy of worker.js must allow " +
   "'wasm-unsafe-eval'.";
 
-type WeightsChange = "none" | "flip-byte" | "truncate";
+/** What initializeDirectly changes in the model it sends: a weights byte, its length, or the board. */
+type ModelChange = "none" | "flip-byte" | "truncate" | "board-19";
 
 const openPage = async (page: Page, query = "") => {
   await page.goto(`/e2e/index.html${query}`);
@@ -49,19 +51,21 @@ const initializeThroughClient = (page: Page) =>
     }
   });
 
-const initializeDirectly = (page: Page, change: WeightsChange): Promise<WorkerReply> =>
-  page.evaluate(async (weightsChange) => {
+const initializeDirectly = (page: Page, change: ModelChange): Promise<WorkerReply> =>
+  page.evaluate(async (modelChange) => {
     const e2e = window.e2e!;
     const model = await e2e.fetchModel();
-    let weights = model.weights;
+    let { manifest, weights } = model;
 
-    if (weightsChange === "flip-byte") {
+    if (modelChange === "flip-byte") {
       new Uint8Array(weights)[1000] ^= 1;
-    } else if (weightsChange === "truncate") {
+    } else if (modelChange === "truncate") {
       weights = weights.slice(0, weights.byteLength - 1);
+    } else if (modelChange === "board-19") {
+      manifest = { ...manifest, architecture: { ...manifest.architecture, boardSize: 19 } };
     }
 
-    return e2e.post({ type: "initialize", manifest: model.manifest, weightsBuffer: weights }, [weights]);
+    return e2e.post({ type: "initialize", manifest, weightsBuffer: weights }, [weights]);
   }, change);
 
 const inferDirectly = (page: Page, length: number, hasNaN: boolean): Promise<WorkerReply> =>
@@ -143,6 +147,11 @@ test("weights modified by one byte are refused", async ({ page }) => {
 test("truncated weights are refused with the length error", async ({ page }) => {
   await openPage(page);
   expectError(await initializeDirectly(page, "truncate"), WEIGHTS_LENGTH_ERROR);
+});
+
+test("a manifest for another board is refused, naming both sizes", async ({ page }) => {
+  await openPage(page);
+  expectError(await initializeDirectly(page, "board-19"), BOARD_SIZE_ERROR);
 });
 
 test("a failed initialize after a successful one leaves no active weights (CUJ 3)", async ({
