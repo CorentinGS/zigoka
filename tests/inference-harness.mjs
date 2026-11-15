@@ -4,17 +4,15 @@ import path from "node:path";
 
 import { findParityMismatch, getUlpDistance } from "../bench/parity-rule.ts";
 
-export { findParityMismatch, getUlpDistance };
+const STATUS_OK = 0;
 
-export const STATUS_OK = 0;
-
-export const sha256Hex = (bytes) =>
+const sha256Hex = (bytes) =>
   crypto
     .createHash("sha256")
     .update(new Uint8Array(bytes.buffer ?? bytes, bytes.byteOffset ?? 0, bytes.byteLength))
     .digest("hex");
 
-export const instantiate = (wasmModule, weights, { loadWeights }) => {
+const instantiate = (wasmModule, weights, { loadWeights }) => {
   const { exports } = new WebAssembly.Instance(wasmModule, {});
 
   if (loadWeights) {
@@ -27,7 +25,7 @@ export const instantiate = (wasmModule, weights, { loadWeights }) => {
   return exports;
 };
 
-export const getDimensions = (exports) => ({
+const getDimensions = (exports) => ({
   featureCount: exports.feature_count(),
   inputStride: exports.input_stride(),
   moveCount: exports.policy_moves(),
@@ -36,7 +34,7 @@ export const getDimensions = (exports) => ({
 
 const copyBytes = (buffer) => new Uint8Array(buffer).buffer;
 
-export const readFixtureSet = (directory) => {
+const readFixtureSet = (directory) => {
   const read = (fileName) => copyBytes(fs.readFileSync(path.join(directory, fileName)));
   const index = JSON.parse(fs.readFileSync(path.join(directory, "index.json"), "utf8"));
 
@@ -54,7 +52,7 @@ export const readFixtureSet = (directory) => {
   };
 };
 
-export const writeInputs = (exports, dimensions, features, start, count) => {
+const writeInputs = (exports, dimensions, features, start, count) => {
   const { featureCount, inputStride, maxBatch } = dimensions;
   const input = new Float32Array(exports.memory.buffer, exports.input_ptr(), maxBatch * inputStride);
 
@@ -64,7 +62,7 @@ export const writeInputs = (exports, dimensions, features, start, count) => {
   }
 };
 
-export const readOutputs = (exports, dimensions, count) => ({
+const readOutputs = (exports, dimensions, count) => ({
   logits: new Float32Array(
     exports.memory.buffer,
     exports.policy_ptr(),
@@ -73,7 +71,7 @@ export const readOutputs = (exports, dimensions, count) => ({
   values: new Float64Array(exports.memory.buffer, exports.value_ptr(), count).slice(),
 });
 
-export const runFixtureSet = (exports, dimensions, fixtureSet) => {
+const runFixtureSet = (exports, dimensions, fixtureSet) => {
   const { moveCount, maxBatch } = dimensions;
   const logits = new Float32Array(fixtureSet.positions * moveCount);
   const values = new Float64Array(fixtureSet.positions);
@@ -96,7 +94,7 @@ export const runFixtureSet = (exports, dimensions, fixtureSet) => {
   return { logits, values, failedBatches };
 };
 
-export const selectHighestLegalMove = (logits, legal, moveCount) => {
+const selectHighestLegalMove = (logits, legal, moveCount) => {
   const passMove = moveCount - 1;
   let selectedMove = legal[passMove] === 1 ? passMove : legal.indexOf(1);
 
@@ -114,4 +112,18 @@ export const selectHighestLegalMove = (logits, legal, moveCount) => {
   }
 
   return selectedMove;
+};
+
+export {
+  findParityMismatch,
+  getDimensions,
+  getUlpDistance,
+  instantiate,
+  readFixtureSet,
+  readOutputs,
+  runFixtureSet,
+  selectHighestLegalMove,
+  sha256Hex,
+  STATUS_OK,
+  writeInputs,
 };
