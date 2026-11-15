@@ -48,3 +48,13 @@ jobs:
         run: pnpm oracle:check
       - run: pnpm test
       - run: pnpm test:e2e
+      # test:e2e rebuilds site/public, which is tracked and deployed: the committed site must be
+      # that build. A fresh build in another folder, with an empty Zig cache, gives the same bytes.
+      - name: site/public is the build of its sources
+        run: |
+          changes=$(git status --porcelain -- site/public)
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "site/public differs from its build: run pnpm build and pnpm site:build, then commit site/public."
+            exit 1
+          fi
