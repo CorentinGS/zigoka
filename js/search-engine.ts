@@ -1,13 +1,21 @@
-import type { InferExports } from "./engine.ts";
+import {
+  STATUS_BAD_BATCH_COUNT,
+  STATUS_NON_FINITE_OUTPUT,
+  STATUS_OK,
+  STATUS_WEIGHTS_NOT_LOADED,
+  type InferExports,
+} from "./engine.ts";
 
-const STATUS_OK = 0;
+// The codes src/search/tree.zig adds to those of infer.wasm.
+const STATUS_GAME_OVER = 4;
 const STATUS_POOL_FULL = 5;
+const STATUS_NOT_STARTED = 6;
 const STATUS_MESSAGES: Record<number, string> = {
-  1: "The model weights are not loaded.",
-  2: "The batch size must be between 1 and the engine's maximum batch.",
-  3: "Model produced a non-finite output.",
-  4: "The search started from a finished game.",
-  6: "The search was not started.",
+  [STATUS_WEIGHTS_NOT_LOADED]: "The model weights are not loaded.",
+  [STATUS_BAD_BATCH_COUNT]: "The batch size must be between 1 and the engine's maximum batch.",
+  [STATUS_NON_FINITE_OUTPUT]: "Model produced a non-finite output.",
+  [STATUS_GAME_OVER]: "The search started from a finished game.",
+  [STATUS_NOT_STARTED]: "The search was not started.",
 };
 const MAX_TARGET = 0xffffffff;
 const NO_MOVE = -1;

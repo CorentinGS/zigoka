@@ -5,9 +5,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { STATUS_BAD_BATCH_COUNT, STATUS_OK, STATUS_WEIGHTS_NOT_LOADED } from "../js/engine.ts";
 import { listModels } from "../models/registry.ts";
 import {
-  STATUS_OK,
   findParityMismatch,
   getDimensions,
   instantiate as instantiateWithWeights,
@@ -27,9 +27,6 @@ const INPUT_PLANE_COUNT = 12;
 const SHA256_BYTE_COUNT = 32;
 const MEMORY_CHECK_INFERENCES = 1000;
 const SNAPSHOT_MODEL_ID = "moka-9";
-
-const STATUS_WEIGHTS_NOT_LOADED = 1;
-const STATUS_BAD_BATCH_COUNT = 2;
 
 const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
 const FIXTURE_SETS = ["calibration", "validation"];

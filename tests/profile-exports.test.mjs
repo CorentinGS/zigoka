@@ -4,9 +4,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { STATUS_BAD_BATCH_COUNT, STATUS_OK, STATUS_WEIGHTS_NOT_LOADED } from "../js/engine.ts";
 import { listModels } from "../models/registry.ts";
 import {
-  STATUS_OK,
   findParityMismatch,
   getDimensions,
   instantiate,
@@ -19,8 +19,6 @@ const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 const resolve = (relativePath) => path.join(rootDirectory, relativePath);
 
 const MAX_BATCH = 8;
-const STATUS_WEIGHTS_NOT_LOADED = 1;
-const STATUS_BAD_BATCH_COUNT = 2;
 
 for (const { id, weightsPath, wasm } of listModels()) {
   const label = `${id}/infer-profile.wasm`;

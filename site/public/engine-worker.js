@@ -6,6 +6,8 @@ var getBufferSha256 = async (buffer) => {
 
 // js/engine.ts
 var STATUS_OK = 0;
+var STATUS_WEIGHTS_NOT_LOADED = 1;
+var STATUS_BAD_BATCH_COUNT = 2;
 var STATUS_NON_FINITE_OUTPUT = 3;
 var checkStatus = (status) => {
   if (status === STATUS_NON_FINITE_OUTPUT) {
@@ -62,14 +64,15 @@ var fetchOk = async (url) => {
 };
 
 // js/search-engine.ts
-var STATUS_OK2 = 0;
+var STATUS_GAME_OVER = 4;
 var STATUS_POOL_FULL = 5;
+var STATUS_NOT_STARTED = 6;
 var STATUS_MESSAGES = {
-  1: "The model weights are not loaded.",
-  2: "The batch size must be between 1 and the engine's maximum batch.",
-  3: "Model produced a non-finite output.",
-  4: "The search started from a finished game.",
-  6: "The search was not started."
+  [STATUS_WEIGHTS_NOT_LOADED]: "The model weights are not loaded.",
+  [STATUS_BAD_BATCH_COUNT]: "The batch size must be between 1 and the engine's maximum batch.",
+  [STATUS_NON_FINITE_OUTPUT]: "Model produced a non-finite output.",
+  [STATUS_GAME_OVER]: "The search started from a finished game.",
+  [STATUS_NOT_STARTED]: "The search was not started."
 };
 var MAX_TARGET = 4294967295;
 var NO_MOVE = -1;
@@ -94,7 +97,7 @@ var writePosition = (exports, state) => {
   new Int8Array(exports.memory.buffer, pointer + POSITION_BOARD_OFFSET, area).set(state.board);
 };
 var checkStatus2 = (status) => {
-  if (status !== STATUS_OK2) {
+  if (status !== STATUS_OK) {
     throw new Error(STATUS_MESSAGES[status] ?? `The search failed with status ${status}.`);
   }
 };

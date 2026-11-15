@@ -1,4 +1,7 @@
+// The codes of `Status` in src/infer/exports.zig, which `infer` and `forward_trunk` return.
 const STATUS_OK = 0;
+const STATUS_WEIGHTS_NOT_LOADED = 1;
+const STATUS_BAD_BATCH_COUNT = 2;
 const STATUS_NON_FINITE_OUTPUT = 3;
 
 interface InferExports {
@@ -90,5 +93,12 @@ const toProfileEngine = (exports: ProfileExports): ProfileEngine => {
   };
 };
 
-export { toEngine, toProfileEngine };
+export {
+  STATUS_BAD_BATCH_COUNT,
+  STATUS_NON_FINITE_OUTPUT,
+  STATUS_OK,
+  STATUS_WEIGHTS_NOT_LOADED,
+  toEngine,
+  toProfileEngine,
+};
 export type { Engine, InferExports, ProfileEngine, ProfileExports };

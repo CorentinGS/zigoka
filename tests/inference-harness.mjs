@@ -3,8 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { findParityMismatch, getUlpDistance } from "../bench/parity-rule.ts";
-
-const STATUS_OK = 0;
+import { STATUS_OK } from "../js/engine.ts";
 
 const sha256Hex = (bytes) =>
   crypto
@@ -124,6 +123,5 @@ export {
   runFixtureSet,
   selectHighestLegalMove,
   sha256Hex,
-  STATUS_OK,
   writeInputs,
 };
