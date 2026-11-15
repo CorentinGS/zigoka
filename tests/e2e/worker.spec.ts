@@ -4,6 +4,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { findParityMismatch } from "../../bench/parity-rule.ts";
 import type { WorkerReply } from "./page.ts";
+import {
+  BOARD_SIZE_ERROR,
+  CSP_ERROR,
+  INPUT_LENGTH_ERROR,
+  NON_FINITE_ERROR,
+  NOT_INITIALIZED_ERROR,
+  WEIGHTS_LENGTH_ERROR,
+  WEIGHTS_MISMATCH_ERROR,
+} from "./worker-errors.ts";
 
 const benchDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -18,17 +27,6 @@ const FEATURE_COUNT = 972;
 const MOVE_COUNT = 82;
 const NOMINAL_POSITION_COUNT = 10;
 const SHORT_INPUT_LENGTH = 810;
-
-const WEIGHTS_MISMATCH_ERROR =
-  "Model weights do not match this engine build (expected sha256 35c1e51c…).";
-const WEIGHTS_LENGTH_ERROR = "Model weights have the wrong length (expected 113648 bytes).";
-const BOARD_SIZE_ERROR = "infer.wasm plays 9×9 games; this host plays 19×19.";
-const NOT_INITIALIZED_ERROR = "Go model worker is not initialized.";
-const INPUT_LENGTH_ERROR = "Input features must have 972 values.";
-const NON_FINITE_ERROR = "Model produced a non-finite output.";
-const CSP_ERROR =
-  "WebAssembly compilation was blocked; the Content Security Policy of worker.js must allow " +
-  "'wasm-unsafe-eval'.";
 
 /** What initializeDirectly changes in the model it sends: a weights byte, its length, or the board. */
 type ModelChange = "none" | "flip-byte" | "truncate" | "board-19";

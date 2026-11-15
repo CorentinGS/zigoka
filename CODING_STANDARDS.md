@@ -4,6 +4,7 @@ The rules a review applies. The mechanical ones are checked, so a review skips t
 
 - `tests/conventions.test.mjs`: arrow functions, never the `function` keyword; each module ends on one export list, with no declaration exported inline.
 - `tests/build-commands.test.mjs`: each `zig build` step and `pnpm` script that a script or README calls exists.
+- `tests/error-table.test.ts`: each Worker error the e2e tests expect is a row of the error table in `docs/designs/zig-wasm-moka.md`.
 - `scripts/check-commit-subjects.mjs`, run by CI: commit subjects read `Area : subject`, in ASCII.
 
 The rules below take judgement.
