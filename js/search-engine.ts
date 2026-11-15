@@ -43,8 +43,6 @@ interface SearchExports extends InferExports {
   search_reused: () => number;
   search_run: (targetVisits: number, batch: number) => number;
   search_visits: () => number;
-  search_nodes: () => number;
-  search_node_capacity: () => number;
   search_best_move: () => number;
   search_child_count: () => number;
   search_child_move: (index: number) => number;

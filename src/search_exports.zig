@@ -95,14 +95,6 @@ export fn search_visits() u32 {
     return tree.rootVisits();
 }
 
-export fn search_nodes() u32 {
-    return tree.nodeCount();
-}
-
-export fn search_node_capacity() u32 {
-    return tree.NODES;
-}
-
 export fn search_best_move() u32 {
     return tree.bestMove();
 }

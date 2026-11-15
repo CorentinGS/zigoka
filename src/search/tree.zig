@@ -379,10 +379,6 @@ pub fn rootVisits() u32 {
     return if (started) node_visits[0] else 0;
 }
 
-pub fn nodeCount() u32 {
-    return nodes_used;
-}
-
 /// Most visited root move, ties broken by the higher prior.
 pub fn bestMove() u32 {
     if (!started) return R.PASS;

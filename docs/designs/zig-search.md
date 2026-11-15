@@ -23,7 +23,11 @@ changé depuis :
     `play(state, move)` rend un `Position`. `tests/search-parity.test.ts`
     compare cette facette aux règles de Moka sans passer derrière
     l'interface ; qu'un coup illégal laisse la position inchangée se vérifie
-    dans les tests natifs de `src/rules/rules.zig`.
+    dans les tests natifs de `src/rules/rules.zig`. `search_nodes` et
+    `search_node_capacity` quittent `search.wasm` et la liste de
+    `tests/wasm-checks.test.mjs` : ils ne servaient qu'à vérifier que l'arbre
+    ne dépasse pas sa capacité, ce qui tient par construction, puisqu'un
+    nœud n'est créé qu'après `hasRoom()` ou au départ d'un arbre vide.
 
 --------------------------------------------------------------------------------
 
