@@ -540,13 +540,13 @@ Section remplie pendant l'implémentation, dans le commit du jalon indiqué.
 ### Vue d'ensemble
 
 ```text
-                     build.zig : registre des modèles
+               models/registry.json : registre des modèles
           moka-9 (vendor/moka/model)       synthetic-19 (models/synthetic-19)
                        │                               ▲
                        │      oracle/generate-synthetic-model.ts (J2)
                        │      (tronc de moka-9 + têtes générées)
                        ▼                               │
-   zig build models ─► zig-out/models/<id>/go-model.{json,bin}
+   models/registry.ts ─► go-model.{json,bin} lus dans le dossier du modèle
    zig build wasm   ─► zig-out/<id>/infer.wasm, infer-safe.wasm
    zig build wasm-profile ─► zig-out/<id>/infer-profile.wasm (banc seulement)
                        │
@@ -571,32 +571,72 @@ plateau se lit dans le manifeste de ce modèle.
 
 ### Registre des modèles
 
-`build.zig` contient la seule liste des modèles :
+`models/registry.json` est la seule liste versionnée des modèles. Un modèle
+qui n'y figure pas ne fait pas partie du build. Chaque entrée donne :
 
-| Identifiant | Dossier du manifeste et du `.bin` | Pages mémoire | Enregistré en |
-| --- | --- | --- | --- |
-| `moka-9` | `vendor/moka/model` | 13 | J1 |
-| `synthetic-19` | `models/synthetic-19` | 66 | J3 |
-| `moka-9-v2` | `vendor/moka-v2/model` | 27 | `moka-v2.md` |
+| Champ | Contenu |
+| --- | --- |
+| `id` | l'identifiant, qui nomme aussi `zig-out/<id>/` et `oracle/fixtures/<id>/` |
+| `directory` | le dossier du manifeste et du `.bin`, relatif à la racine du dépôt |
+| `kind` | `trained` (publié par Moka ou distillé par le pipeline) ou `synthetic` |
+| `trunkFrom` | pour un modèle synthétique seulement : le modèle entraîné dont il garde le tronc |
+| `memoryPages` | les pages mémoire de `infer.wasm`, `infer-safe.wasm` et `infer-profile.wasm` |
+| `search` | les nœuds, les arêtes et les pages de `search.wasm` (`zig-search.md`) |
 
-Chaque entrée a aussi un champ `search` (nœuds, arêtes et pages de
-`search.wasm`), ajouté par `zig-search.md` avec l'étape `zig build search`.
+La taille du plateau n'y figure pas : elle se lit toujours dans le manifeste.
+Le fichier donne aussi l'ordre dans lequel les outils parcourent les modèles.
 
+| Identifiant | Nature | Dossier | Pages mémoire | Enregistré en |
+| --- | --- | --- | --- | --- |
+| `moka-9` | `trained` | `vendor/moka/model` | 13 | J1 |
+| `moka-9-v2` | `trained` | `vendor/moka-v2/model` | 27 | `moka-v2.md` |
+| `synthetic-19` | `synthetic`, tronc de `moka-9` | `models/synthetic-19` | 66 | J3 |
+| `synthetic-19-v2` | `synthetic`, tronc de `moka-9-v2` | `models/synthetic-19-v2` | 81 | `moka-19.md` |
+| `moka-19` | `trained` | `models/moka-19` | 81 | `moka-19.md` |
+
+Trois modules lisent le registre :
+
+*   `build.zig` le lit à la configuration et le valide seul, strictement :
+    clé inconnue ou manquante, identifiant en double, `kind` inconnu,
+    `trunkFrom` absent d'un modèle synthétique ou qui ne nomme pas un modèle
+    entraîné enregistré. Modifier le fichier reconfigure le build
+    (`b.dependOnFileContents`). Les deux autres lecteurs lui font confiance.
+*   `models/registry.ts` sert tous les outils Node. `listModels()` donne les
+    modèles enregistrés dans l'ordre du fichier ; `findModel(id)` donne un
+    modèle enregistré, ou à défaut un modèle local. Chaque modèle donne son
+    dossier source, son manifeste et sa taille de plateau, et les chemins de
+    ses wasm : `wasm(name)` échoue en nommant la commande de build quand le
+    fichier n'est pas construit, `wasmIfBuilt(name)` renvoie alors `null`.
+*   `pipeline/tests/model_registry.py` donne aux tests Python l'identifiant,
+    le dossier et la nature de chaque modèle.
+
+Règles :
+
+*   La racine du dépôt est le parent du dossier du registre. Un autre
+    registre décrit donc un dépôt entier : `-Dregistry=<fichier>` pour
+    `build.zig`, `--registry <fichier>` pour `scripts/run-oracle.mjs` et
+    l'oracle, `{ registry }` pour `models/registry.ts`. Les tests de
+    `tests/build-errors.test.mjs` s'en servent pour vérifier les refus.
 *   Les 66 pages viennent de la règle du premier design (25 % de marge
     au-dessus des tampons et de la pile) : environ 3,4 Mo de tampons et
     64 Kio de pile (estimation). L'assertion de build existante refuse un
     nombre trop petit, et le test « the configured page count is the smallest
     one with 25% headroom » un nombre trop grand ; les deux tournent pour
-    chaque modèle.
+    chaque modèle. `tests/wasm-checks.test.mjs` compare les pages que déclare
+    chaque wasm à celles du registre.
 *   `zig build wasm` et `zig build wasm-safe` construisent tous les modèles
     enregistrés. L'option `-Dmodel=<id>` restreint le build à un seul ; un
     identifiant inconnu échoue avec la liste des identifiants.
-*   `zig build models` copie le manifeste et le `.bin` de chaque modèle dans
-    `zig-out/models/<id>/`. L'oracle, les tests Node et `build-js` lisent les
-    modèles là. Une seule exception : le générateur du modèle synthétique lit
-    `moka-9` dans `vendor/moka/model/`, car il tourne avant tout build.
-*   Les artefacts vont dans `zig-out/<id>/` au lieu de `zig-out/bin/`.
+*   Les outils lisent le manifeste et le `.bin` dans le dossier source du
+    modèle ; `zig-out/` ne contient que les wasm, dans `zig-out/<id>/`.
     `dist/infer.wasm` est la copie de `zig-out/moka-9/infer.wasm`.
+*   Un modèle local (`-Dlocal-model=<id>:<id enregistré>`) n'est jamais
+    enregistré : ses fichiers sont dans `models/local/<id>/`, ignoré par
+    git, et ses wasm dans `zig-out/local/<id>/`. `findModel` le trouve ;
+    `listModels` ne le donne jamais, et il n'a pas de nature.
+*   `tests/model-registry.test.ts` vérifie que chaque dossier de modèle
+    versionné (`models/*/` sauf `local/`, et `vendor/*/model`) est enregistré,
+    et que chaque dossier enregistré contient un modèle.
 
 ### Modèle synthétique
 
