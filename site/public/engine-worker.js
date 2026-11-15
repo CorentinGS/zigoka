@@ -96,6 +96,41 @@ var writePosition = (exports, state) => {
   view.setInt8(POSITION_NEXT_COLOR_OFFSET, state.nextColor);
   new Int8Array(exports.memory.buffer, pointer + POSITION_BOARD_OFFSET, area).set(state.board);
 };
+var readPosition = (exports, area) => {
+  const pointer = exports.position_ptr();
+  const view = new DataView(exports.memory.buffer, pointer);
+  return {
+    koMove: view.getInt16(POSITION_KO_OFFSET, true),
+    moveCount: view.getUint16(POSITION_MOVE_COUNT_OFFSET, true),
+    lastMove: view.getInt16(POSITION_LAST_MOVE_OFFSET, true),
+    previousMove: view.getInt16(POSITION_PREVIOUS_MOVE_OFFSET, true),
+    consecutivePassCount: view.getUint8(POSITION_PASS_COUNT_OFFSET),
+    nextColor: view.getInt8(POSITION_NEXT_COLOR_OFFSET),
+    board: new Int8Array(exports.memory.buffer, pointer + POSITION_BOARD_OFFSET, area).slice()
+  };
+};
+var readMoves = (exports, count) => Array.from(new Uint16Array(exports.memory.buffer, exports.moves_ptr(), count));
+var toSearchRules = (exports) => {
+  const probe = (run) => (state) => {
+    writePosition(exports, state);
+    return run();
+  };
+  return {
+    getLegalMoves: probe(() => readMoves(exports, exports.rules_legal_moves())),
+    encodeStudentFeatures: probe(() => {
+      exports.rules_encode();
+      return new Float32Array(exports.memory.buffer, exports.input_ptr(), exports.feature_count()).slice();
+    }),
+    isGameOver: probe(() => exports.rules_is_game_over() === 1),
+    getAreaScore: probe(() => exports.rules_area_score()),
+    getAutomaticallyDeadMoves: probe(() => readMoves(exports, exports.rules_dead_stones())),
+    getSearchScore: probe(() => exports.search_final_score()),
+    play: (state, move) => {
+      writePosition(exports, state);
+      return exports.rules_play(move) === 1 ? readPosition(exports, state.board.length) : null;
+    }
+  };
+};
 var checkStatus2 = (status) => {
   if (status !== STATUS_OK) {
     throw new Error(STATUS_MESSAGES[status] ?? `The search failed with status ${status}.`);
@@ -141,7 +176,7 @@ var toSearchEngine = (exports) => {
     move: exports.search_child_move(index),
     visits: exports.search_child_visits(index)
   }));
-  return { search, rootVisits, exports };
+  return { search, rootVisits, rules: toSearchRules(exports) };
 };
 
 // js/engines.ts

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { loadEngines } from "../js/engines.ts";
-import { readMoves, readPosition, writePosition, type SearchEngine } from "../js/search-engine.ts";
+import type { SearchEngine } from "../js/search-engine.ts";
 import { listModels, type RegisteredModel } from "../models/registry.ts";
 import { createMulberry32 } from "../oracle/mulberry32.ts";
 
@@ -13,7 +13,6 @@ type MokaRules = typeof import("./moka-rules.ts");
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const PASS_PROBABILITY = 0.05;
-const STATUS_GAME_OVER = 4;
 
 const loadRules = async (size: number) =>
   (await import(path.join(rootDirectory, `tests/dist/moka-rules-${size}.js`))) as MokaRules;
@@ -117,51 +116,46 @@ const checkPosition = (
   state: GoGameState,
   checkDeadStones: boolean,
 ) => {
-  const { exports } = engine;
+  const zig = engine.rules;
   const label = `move ${state.moveCount}, history ${state.moveHistory.join(",")}`;
+  const features = zig.encodeStudentFeatures(state);
 
-  writePosition(exports, state);
-  assert.deepEqual(readMoves(exports, exports.rules_legal_moves()), rules.getLegalMoves(state), label);
-
-  exports.rules_encode();
-  const features = new Float32Array(exports.memory.buffer, exports.input_ptr(), exports.feature_count());
-
+  assert.deepEqual(zig.getLegalMoves(state), rules.getLegalMoves(state), label);
   assert.ok(toBytes(features).equals(toBytes(rules.encodeStudentFeatures(state))), `features, ${label}`);
-  assert.equal(exports.rules_is_game_over() === 1, rules.isGameOver(state), label);
-  assert.equal(exports.rules_area_score(), rules.getAreaScore(state), label);
+  assert.equal(zig.isGameOver(state), rules.isGameOver(state), label);
+  assert.equal(zig.getAreaScore(state), rules.getAreaScore(state), label);
 
   if (checkDeadStones || rules.isGameOver(state)) {
     const expected = [...rules.getAutomaticallyDeadMoves(state)].sort((left, right) => left - right);
 
-    assert.deepEqual(readMoves(exports, exports.rules_dead_stones()), expected, `dead stones, ${label}`);
-    assert.equal(exports.search_final_score(), rules.getSearchScore(state), `search score, ${label}`);
+    assert.deepEqual(zig.getAutomaticallyDeadMoves(state), expected, `dead stones, ${label}`);
+    assert.equal(zig.getSearchScore(state), rules.getSearchScore(state), `search score, ${label}`);
   }
 };
 
 const checkPlay = (rules: MokaRules, engine: SearchEngine, state: GoGameState, move: number) => {
-  const { exports } = engine;
-  const area = state.board.length;
   const expected = rules.playMove(state, move);
-
-  writePosition(exports, state);
-  const before = readPosition(exports, area);
-
-  assert.equal(exports.rules_play(move), expected ? 1 : 0, `move ${move} at ${state.moveCount}`);
+  const played = engine.rules.play(state, move);
+  const label = `move ${move} at ${state.moveCount}`;
 
   if (!expected) {
-    assert.deepEqual(readPosition(exports, area), before);
+    assert.equal(played, null, label);
     return;
   }
 
-  assert.deepEqual(readPosition(exports, area), {
-    koMove: expected.koMove,
-    moveCount: expected.moveCount,
-    lastMove: expected.moveHistory.at(-1),
-    previousMove: expected.moveHistory.at(-2) ?? -1,
-    consecutivePassCount: expected.consecutivePassCount,
-    nextColor: expected.nextColor,
-    board: expected.board,
-  });
+  assert.deepEqual(
+    played,
+    {
+      koMove: expected.koMove,
+      moveCount: expected.moveCount,
+      lastMove: expected.moveHistory.at(-1),
+      previousMove: expected.moveHistory.at(-2) ?? -1,
+      consecutivePassCount: expected.consecutivePassCount,
+      nextColor: expected.nextColor,
+      board: expected.board,
+    },
+    label,
+  );
 };
 
 for (const model of MODELS) {
@@ -280,18 +274,25 @@ for (const model of MODELS) {
     const pass = rules.createGameState().board.length;
     const finished = rules.playMove(rules.playMove(rules.createGameState(), pass)!, pass)!;
 
-    writePosition(searchEngine.exports, finished);
-    assert.equal(searchEngine.exports.search_start(0), STATUS_GAME_OVER);
+    assert.throws(() => searchEngine.search(finished, { timeMs: Infinity, maxVisits: 1 }), {
+      message: "The search started from a finished game.",
+    });
   });
 
-  test(`${model.id}: the search stops when the tree is full`, async () => {
+  test(`${model.id}: the search stops when the tree is full, and the next search starts a new tree`, async () => {
     const rules = await model.loadRules();
     const { searchEngine } = await model.loadEngines();
-    const result = searchEngine.search(rules.createGameState(), { timeMs: Infinity, maxVisits: 1_000_000 });
+    const state = rules.createGameState();
+    const result = searchEngine.search(state, { timeMs: Infinity, maxVisits: 1_000_000 });
 
     assert.ok(result.poolFull);
     assert.ok(result.visits > 1000);
-    assert.ok(searchEngine.exports.search_nodes() <= searchEngine.exports.search_node_capacity());
+
+    const next = searchEngine.search(state, { timeMs: Infinity, maxVisits: 10 });
+
+    assert.equal(next.poolFull, false);
+    assert.equal(next.visits, 10);
+    assert.ok(rules.getLegalMoves(state).includes(next.move));
   });
 
   test(`${model.id}: at 19×19 the search does not count Moka's capture aftermath`, async (context) => {
@@ -321,7 +322,6 @@ for (const model of MODELS) {
     assert.equal(rules.getAreaScore(state), 19 - 20 - 16 * 19 - 7);
     assert.equal(rules.getSearchScore(state), rules.getAreaScore(state));
 
-    writePosition(searchEngine.exports, state);
-    assert.equal(searchEngine.exports.search_final_score(), rules.getSearchScore(state));
+    assert.equal(searchEngine.rules.getSearchScore(state), rules.getSearchScore(state));
   });
 }

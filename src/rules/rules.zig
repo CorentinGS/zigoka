@@ -480,6 +480,7 @@ test "a single-stone recapture is ko until another move is played" {
     try std.testing.expectEqual(EMPTY, position.board[11]);
     var copy = position;
     try std.testing.expect(!R9.play(&copy, 11));
+    try std.testing.expectEqual(position, copy);
     try playAll(&position, &.{ 80, 79, 11 });
     try std.testing.expectEqual(@as(i16, 10), position.ko);
     try std.testing.expectEqual(EMPTY, position.board[10]);
@@ -495,13 +496,15 @@ test "suicide is illegal and leaves the position unchanged" {
     try std.testing.expectEqual(before, position);
 }
 
-test "isLegal agrees with play on every point" {
+test "isLegal agrees with play on every point, and an illegal play leaves the position unchanged" {
     var position: R9.Position = .{};
     try playAll(&position, &.{ 1, 0, 9, 40, 10, 41, 18, 42, 2, 50, 11, 51 });
     const analysis = R9.analyze(&position.board);
     for (0..R9.AREA) |point| {
         var copy = position;
-        try std.testing.expectEqual(R9.play(&copy, @intCast(point)), R9.isLegal(&position, &analysis, @intCast(point)));
+        const legal = R9.play(&copy, @intCast(point));
+        try std.testing.expectEqual(legal, R9.isLegal(&position, &analysis, @intCast(point)));
+        if (!legal) try std.testing.expectEqual(position, copy);
     }
 }
 

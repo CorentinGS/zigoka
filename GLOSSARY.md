@@ -31,3 +31,9 @@ _Avoid_: runtime (Moka's TypeScript reference implementation)
 
 **Host**:
 A program that runs engines: the published worker, the site, the demo match, the match CLI, the bench and the tests.
+
+## Games
+
+**Position**:
+What the engine's rules read of a game: the board, the ko point, the move count and the consecutive passes, the color to play, and the last two moves. A game state also holds the whole move history.
+_Avoid_: game state (for the position alone), board (for the whole position)

@@ -62,10 +62,40 @@ type SearchOptions = {
 
 type SearchOutcome = { move: number; visits: number; reused: number; poolFull: boolean };
 
+/** What the engine's rules read of a game (GLOSSARY.md): a game state without its whole history. */
+type Position = {
+  koMove: number;
+  moveCount: number;
+  lastMove: number;
+  previousMove: number;
+  consecutivePassCount: number;
+  nextColor: number;
+  board: Int8Array;
+};
+
+/**
+ * The rules the search plays by, under the names of Moka's where they give the same value. Each
+ * call writes the state it is given; the tree keeps its own positions, so a call between two
+ * searches changes neither.
+ */
+type SearchRules = {
+  getLegalMoves: (state: GoGameState) => number[];
+  /** A copy: the engine reuses its input for each evaluation. */
+  encodeStudentFeatures: (state: GoGameState) => Float32Array;
+  isGameOver: (state: GoGameState) => boolean;
+  getAreaScore: (state: GoGameState) => number;
+  /** In ascending order, where Moka gives the order it finds them in. */
+  getAutomaticallyDeadMoves: (state: GoGameState) => number[];
+  /** The score the search gives the game if it ends there, from Black's side (match/search.ts). */
+  getSearchScore: (state: GoGameState) => number;
+  /** The position after `move`, or null if `move` is illegal. */
+  play: (state: GoGameState, move: number) => Position | null;
+};
+
 interface SearchEngine {
   search: (state: GoGameState, options: SearchOptions) => SearchOutcome;
   rootVisits: () => { move: number; visits: number }[];
-  exports: SearchExports;
+  rules: SearchRules;
 }
 
 /** Copies the part of `state` the rules read into the engine's position: board, ko, counters and the last two moves. */
@@ -84,7 +114,7 @@ const writePosition = (exports: SearchExports, state: GoGameState) => {
 };
 
 /** Reads back what `writePosition` writes, with the board as a copy. */
-const readPosition = (exports: SearchExports, area: number) => {
+const readPosition = (exports: SearchExports, area: number): Position => {
   const pointer = exports.position_ptr();
   const view = new DataView(exports.memory.buffer, pointer);
 
@@ -101,6 +131,32 @@ const readPosition = (exports: SearchExports, area: number) => {
 
 const readMoves = (exports: SearchExports, count: number) =>
   Array.from(new Uint16Array(exports.memory.buffer, exports.moves_ptr(), count));
+
+const toSearchRules = (exports: SearchExports): SearchRules => {
+  const probe = <Result>(run: () => Result) => (state: GoGameState) => {
+    writePosition(exports, state);
+
+    return run();
+  };
+
+  return {
+    getLegalMoves: probe(() => readMoves(exports, exports.rules_legal_moves())),
+    encodeStudentFeatures: probe(() => {
+      exports.rules_encode();
+
+      return new Float32Array(exports.memory.buffer, exports.input_ptr(), exports.feature_count()).slice();
+    }),
+    isGameOver: probe(() => exports.rules_is_game_over() === 1),
+    getAreaScore: probe(() => exports.rules_area_score()),
+    getAutomaticallyDeadMoves: probe(() => readMoves(exports, exports.rules_dead_stones())),
+    getSearchScore: probe(() => exports.search_final_score()),
+    play: (state, move) => {
+      writePosition(exports, state);
+
+      return exports.rules_play(move) === 1 ? readPosition(exports, state.board.length) : null;
+    },
+  };
+};
 
 const checkStatus = (status: number) => {
   if (status !== STATUS_OK) {
@@ -172,8 +228,8 @@ const toSearchEngine = (exports: SearchExports): SearchEngine => {
       visits: exports.search_child_visits(index),
     }));
 
-  return { search, rootVisits, exports };
+  return { search, rootVisits, rules: toSearchRules(exports) };
 };
 
-export { readMoves, readPosition, toSearchEngine, writePosition };
-export type { SearchEngine, SearchExports, SearchOptions, SearchOutcome };
+export { toSearchEngine };
+export type { Position, SearchEngine, SearchExports, SearchOptions, SearchOutcome, SearchRules };

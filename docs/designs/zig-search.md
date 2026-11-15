@@ -16,6 +16,14 @@ changé depuis :
     L'horloge est l'option `now` de `search`, et
     `tests/search-budget.test.ts` fait tourner la boucle sur une horloge
     simulée.
+*   **Interface du moteur de recherche (`js/search-engine.ts`, #2).** Le
+    moteur ne donne plus ses exports : l'ABI, la disposition du `Position` et
+    les codes de `Status` restent dans le module. Les règles sont la facette
+    `rules`, sous les noms de Moka quand la valeur est la même, et
+    `play(state, move)` rend un `Position`. `tests/search-parity.test.ts`
+    compare cette facette aux règles de Moka sans passer derrière
+    l'interface ; qu'un coup illégal laisse la position inchangée se vérifie
+    dans les tests natifs de `src/rules/rules.zig`.
 
 --------------------------------------------------------------------------------
 
