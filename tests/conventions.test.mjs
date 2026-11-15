@@ -87,7 +87,8 @@ const scanTokens = (text) => {
     previous = kind;
   }
 
-  return tokens;
+  // A misread `}` or `/` leaves a bracket open or swallows the rest of the file as one token.
+  return { tokens, isBalanced: depth === 0 && braces.length === 0 };
 };
 
 const indexAfterSemicolon = (tokens, index) => {
@@ -136,9 +137,9 @@ const readExport = (tokens, index) => {
  * a config file may end on `export default`.
  */
 const findViolations = (text) => {
-  const tokens = scanTokens(text);
+  const { tokens, isBalanced } = scanTokens(text);
   const lineOf = (token) => text.slice(0, token.start).split("\n").length;
-  const violations = [];
+  const violations = isBalanced ? [] : ["the scan ends inside a bracket or a template, so it misread the file"];
   let exportsBegan = false;
   let codeAfterExports = false;
   let index = 0;
@@ -201,6 +202,9 @@ test("the conventions check reads past template substitutions and regular expres
     "5: the function keyword; write an arrow function",
     "6: a declaration exported inline; list it in the export at the end",
     "9: code after the exports, which end the module",
+  ]);
+  assert.deepEqual(findViolations("const open = (1;"), [
+    "the scan ends inside a bracket or a template, so it misread the file",
   ]);
 });
 
