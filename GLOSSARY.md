@@ -26,7 +26,7 @@ _Avoid_: draft model, unregistered model
 ## Engines
 
 **Engine**:
-The Zig/WebAssembly build of a model, instantiated by a host. An infer engine evaluates positions; a search engine also searches, and holds one search tree.
+The Zig/WebAssembly build of a model, instantiated by a host. An infer engine evaluates positions; a search engine also searches, and holds one search tree; a profile engine also runs the trunk alone, for the bench.
 _Avoid_: runtime (Moka's TypeScript reference implementation)
 
 **Host**:

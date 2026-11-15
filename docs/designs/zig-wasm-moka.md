@@ -42,16 +42,21 @@ design décrit le moteur tel qu'il a été approuvé. Ce qui a changé depuis :
     les hôtes (`GLOSSARY.md`) : le Worker publié, le site, la démo, `match`,
     le banc et les tests. `compileEngines` compile les `.wasm` dont l'hôte a
     besoin ; `load` reçoit ensuite les poids et la taille du plateau que joue
-    l'hôte, et chaque `createEngine`, `createSearchEngine` ou
-    `createProfileEngine` crée une nouvelle instance, donc un nouvel arbre de
-    recherche. Les poids sont copiés dans chaque instance, jamais modifiés.
-    Un `.wasm` qui ne joue pas la taille de l'hôte est refusé (« search.wasm
-    plays 19×19 games; this host plays 9×9. »). Le Worker publié sert tout
-    modèle (le banc le copie pour chacun) : il prend cette taille dans
-    `manifest.architecture.boardSize` du message `initialize`, seul champ du
-    manifeste qu'il lit. `js/engine.ts` et `js/search-engine.ts` ne gardent
-    que l'inférence et la recherche sur une instance chargée,
-    `js/load-error.ts` disparaît, et le site ne sert plus `go-model.json`.
+    l'hôte, et contrôle chaque `.wasm` compilé : plateau, longueur et sha256
+    des poids. Le résultat n'a une méthode `createEngine`,
+    `createSearchEngine` ou `createProfileEngine` que pour les fichiers
+    compilés ; chaque appel donne une nouvelle instance, donc un nouvel arbre
+    de recherche. `loadEngines` enchaîne les deux étapes pour les hôtes qui
+    chargent une fois. Les poids sont copiés dans chaque instance, jamais
+    modifiés. Un `.wasm` qui ne joue pas la taille de l'hôte est refusé
+    (« search.wasm plays 19×19 games; this host plays 9×9. »). Le Worker
+    publié sert tout modèle (le banc le copie pour chacun) : il prend cette
+    taille dans `manifest.architecture.boardSize` du message `initialize`,
+    seul champ du manifeste qu'il lit. `match` prend celle de son bundle,
+    comme les pages : `match-19.js` joue en 19×19. `js/engine.ts` et
+    `js/search-engine.ts` ne gardent que l'inférence et la recherche sur une
+    instance chargée, `js/load-error.ts` disparaît, et le site ne sert plus
+    `go-model.json`.
 
 --------------------------------------------------------------------------------
 
@@ -625,8 +630,9 @@ comme ceux de Moka :
 | Cause | Message |
 | --- | --- |
 | pas de `simd128` | « WebAssembly SIMD is not supported in this browser. » |
-| compilation bloquée | « WebAssembly compilation was blocked; the Content Security Policy of worker.js must allow 'wasm-unsafe-eval'. » |
+| compilation bloquée (le message nomme le script, ici `worker.js`) | « WebAssembly compilation was blocked; the Content Security Policy of worker.js must allow 'wasm-unsafe-eval'. » |
 | téléchargement impossible | « Failed to load infer.wasm. » |
+| plateau du manifeste reçu, ici 19×19 (contrôlé avant la longueur) | « infer.wasm plays 9×9 games; this host plays 19×19. » |
 | longueur des poids | « Model weights have the wrong length (expected 113648 bytes). » |
 | sha256 des poids | « Model weights do not match this engine build (expected sha256 35c1e51c…). » |
 | longueur de l'entrée | « Input features must have 972 values. » |
@@ -634,11 +640,12 @@ comme ceux de Moka :
 | `infer` sans `initialize` réussi | « Go model worker is not initialized. » (message de Moka) |
 | autre `Status` (`weights_not_loaded`, `bad_batch_count`) | « Go model inference failed. » (message de repli de Moka) |
 
-Les cinq messages de chargement viennent de `js/engines.ts`, que partagent
-tous les hôtes ; celui de la CSP nomme le script d'après `location.pathname`,
-donc `worker.js` pour le Worker publié. Ce module en ajoute un : un
-`infer.wasm` construit pour un autre plateau que celui du manifeste reçu
-donne « infer.wasm plays 19×19 games; this host plays 9×9. ». Les messages
+Les six messages de chargement viennent de `js/engines.ts`, que partagent
+tous les hôtes. Celui de la CSP nomme le script d'après `location.pathname`,
+donc `worker.js` pour le Worker publié. Celui du plateau s'ajoute à ceux du
+design approuvé : il passe avant la longueur, car les poids d'un autre
+plateau ont aussi une autre longueur, et un client qui envoie un modèle
+19×19 à ce Worker le reçoit à la place de l'erreur de longueur. Les messages
 de l'entrée, des sorties et des autres `Status` viennent de `js/engine.ts`,
 et « Go model worker is not initialized. » de `js/worker.ts`.
 
