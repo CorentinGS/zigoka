@@ -57,6 +57,8 @@ type CliConfig = Omit<MatchConfig, "first" | "second"> & {
   first: SideKind;
   second: SideKind;
   katago: KataGoSettings;
+  /** False with --no-save: the summary prints, and bench/results gets no file. */
+  save: boolean;
 };
 
 /**
@@ -209,6 +211,7 @@ const parseConfig = (): CliConfig => {
       "opening-moves": { type: "string", default: "4" },
       parallel: { type: "string", default: "4" },
       seed: { type: "string", default: "1" },
+      "no-save": { type: "boolean", default: false },
     },
   });
 
@@ -262,6 +265,7 @@ const parseConfig = (): CliConfig => {
     openingMoves: Number(values["opening-moves"]),
     parallel: Math.min(Number(values.parallel), os.availableParallelism()),
     seed: Number(values.seed),
+    save: !values["no-save"],
   };
 };
 
@@ -378,6 +382,11 @@ const runMain = async () => {
 
   printSummary(summary);
   console.log(`  wall time ${((performance.now() - startedAt) / 1000).toFixed(0)} s`);
+
+  if (!config.save) {
+    return;
+  }
+
   fs.mkdirSync(resultsDirectory, { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify({ summary, results, timings }, null, 2)}\n`);
   console.log(`Results written to ${path.relative(rootDirectory, outputPath)}`);

@@ -205,6 +205,13 @@ const writeResults = (report) => {
 const main = async () => {
   const isBaseline = readOption("--baseline");
   const isVerdict = readOption("--verdict");
+  // --no-save prints the table and the verdict, and writes nothing to bench/results.
+  const isSaved = !readOption("--no-save");
+
+  if (isBaseline && !isSaved) {
+    throw new Error("--baseline writes bench/results/baseline-<id>.json, so it does not take --no-save.");
+  }
+
   const port = readPort();
   const modelId = readValueOption("--model") ?? CONTROL_MODEL_ID;
   const modelIds =
@@ -312,7 +319,9 @@ const main = async () => {
     const report = { date, machine, runs, models };
 
     if (!isVerdict) {
-      writeResults(report);
+      if (isSaved) {
+        writeResults(report);
+      }
 
       return;
     }
@@ -326,7 +335,10 @@ const main = async () => {
     const passed = ratio >= G4_RATIO_THRESHOLD;
 
     report.verdict = { model: modelId, threshold: G4_RATIO_THRESHOLD, ratio, passed };
-    writeResults(report);
+
+    if (isSaved) {
+      writeResults(report);
+    }
 
     for (const [id, model] of Object.entries(models)) {
       process.stdout.write(

@@ -30,10 +30,11 @@ reference data for the tests.
 | --- | --- |
 | `pnpm build` | builds the WebAssembly modules and the JS bundles |
 | `pnpm test` | Zig and Node tests |
+| `pnpm test:node` | the Node tests alone, against the WebAssembly modules already built |
 | `pnpm test:e2e` | browser tests in Chromium |
 | `pnpm check:all` | everything CI runs |
 | `pnpm demo` | play against the engine in the browser |
-| `pnpm match` | engine-vs-engine matches in Node |
+| `pnpm match` | engine-vs-engine matches in Node; `--no-save` keeps the result out of `bench/results` |
 
 ## Using the worker
 
