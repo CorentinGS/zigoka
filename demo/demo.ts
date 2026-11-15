@@ -1,5 +1,5 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
-import { GO_BLACK_COLOR, GO_PASS_MOVE } from "../vendor/moka/src/constants.ts";
+import { GO_BLACK_COLOR, GO_KOMI_POINTS, GO_PASS_MOVE } from "../vendor/moka/src/constants.ts";
 import {
   createGameState,
   encodeStudentFeatures,
@@ -147,7 +147,7 @@ const finishGame = () => {
   renderBoard();
   setPageState(
     "over",
-    `Game over: ${formatScore(score)} (${deadMoves.length} dead stones removed, komi 7).`,
+    `Game over: ${formatScore(score)} (${deadMoves.length} dead stones removed, komi ${GO_KOMI_POINTS}).`,
   );
 };
 

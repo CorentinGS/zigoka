@@ -63,8 +63,10 @@ type CliConfig = Omit<MatchConfig, "first" | "second"> & {
 
 /**
  * When KataGo plays, `score` and `firstResult` come from KataGo's own score of the final position and
- * `mokaScore` keeps Moka's: Zig's search scores with Moka's dead-stone guess and can pass into a
- * position that guess misjudges.
+ * `mokaScore` keeps Moka's estimate, which also captures every chain left in atari after the game. The
+ * summary counts the games where the two disagree. At 9×9 Zig's search counts finished games with
+ * Moka's estimate, so it can pass into a position that estimate misjudges; at 19×19 it removes only
+ * the pass-dead stones (moka-19.md).
  */
 type CliGameResult = GameResult & { mokaScore?: number };
 
