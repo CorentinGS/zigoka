@@ -52,7 +52,14 @@ design décrit le moteur tel qu'il a été approuvé. Ce qui a changé depuis :
     (« search.wasm plays 19×19 games; this host plays 9×9. »). Le Worker
     publié sert tout modèle (le banc le copie pour chacun) : il prend cette
     taille dans `manifest.architecture.boardSize` du message `initialize`,
-    seul champ du manifeste qu'il lit. `match` prend celle de son bundle,
+    seul champ du manifeste qu'il lit. Ce n'est pas la comparaison champ par
+    champ que l'Alternative I écarte : le Worker de Moka lit déjà ce champ,
+    donc le protocole ne gagne aucun contrat, et ce champ n'est pas
+    descriptif, puisqu'il fixe la forme de chaque tenseur. Un manifeste d'un
+    autre plateau que le `.wasm` serait refusé de toute façon par la longueur
+    des poids ; le contrôle du plateau donne seulement un message plus
+    précis. Un `boardSize` facultatif retirerait ce contrôle à tous les
+    hôtes pour en dispenser un seul. `match` prend celle de son bundle,
     comme les pages : `match-19.js` joue en 19×19. `js/engine.ts` et
     `js/search-engine.ts` ne gardent que l'inférence et la recherche sur une
     instance chargée, `js/load-error.ts` disparaît, et le site ne sert plus
