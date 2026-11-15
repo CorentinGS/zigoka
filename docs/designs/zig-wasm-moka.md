@@ -38,8 +38,20 @@ design décrit le moteur tel qu'il a été approuvé. Ce qui a changé depuis :
     fichier non listé est refusé.
 *   **Tests.** `src/test_root.zig` importe aussi `rules/rules.zig`, et
     `tests/wasm-checks.test.mjs` contrôle aussi `search.wasm`.
-    `js/engine.ts` exporte aussi `instantiateWithWeights`, que
-    `js/search-engine.ts` réutilise.
+*   **Chargement des moteurs.** `js/engines.ts` charge les moteurs de tous
+    les hôtes (`GLOSSARY.md`) : le Worker publié, le site, la démo, `match`,
+    le banc et les tests. `compileEngines` compile les `.wasm` dont l'hôte a
+    besoin ; `load` reçoit ensuite les poids et la taille du plateau que joue
+    l'hôte, et chaque `createEngine`, `createSearchEngine` ou
+    `createProfileEngine` crée une nouvelle instance, donc un nouvel arbre de
+    recherche. Les poids sont copiés dans chaque instance, jamais modifiés.
+    Un `.wasm` qui ne joue pas la taille de l'hôte est refusé (« search.wasm
+    plays 19×19 games; this host plays 9×9. »). Le Worker publié sert tout
+    modèle (le banc le copie pour chacun) : il prend cette taille dans
+    `manifest.architecture.boardSize` du message `initialize`, seul champ du
+    manifeste qu'il lit. `js/engine.ts` et `js/search-engine.ts` ne gardent
+    que l'inférence et la recherche sur une instance chargée,
+    `js/load-error.ts` disparaît, et le site ne sert plus `go-model.json`.
 
 --------------------------------------------------------------------------------
 
@@ -621,6 +633,14 @@ comme ceux de Moka :
 | sortie non finie | « Model produced a non-finite output. » |
 | `infer` sans `initialize` réussi | « Go model worker is not initialized. » (message de Moka) |
 | autre `Status` (`weights_not_loaded`, `bad_batch_count`) | « Go model inference failed. » (message de repli de Moka) |
+
+Les cinq messages de chargement viennent de `js/engines.ts`, que partagent
+tous les hôtes ; celui de la CSP nomme le script d'après `location.pathname`,
+donc `worker.js` pour le Worker publié. Ce module en ajoute un : un
+`infer.wasm` construit pour un autre plateau que celui du manifeste reçu
+donne « infer.wasm plays 19×19 games; this host plays 9×9. ». Les messages
+de l'entrée, des sorties et des autres `Status` viennent de `js/engine.ts`,
+et « Go model worker is not initialized. » de `js/worker.ts`.
 
 Les deux derniers `Status` ne se produisent pas si le Worker est correct : il
 appelle toujours `infer(1)`, et seulement après `load_weights()`. Ils restent

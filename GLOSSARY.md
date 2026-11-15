@@ -22,3 +22,12 @@ _Avoid_: fake model, random model
 **Local model**:
 An unversioned export of a pipeline checkpoint, built next to the registered models but never part of the model registry.
 _Avoid_: draft model, unregistered model
+
+## Engines
+
+**Engine**:
+The Zig/WebAssembly build of a model, instantiated by a host. An infer engine evaluates positions; a search engine also searches, and holds one search tree.
+_Avoid_: runtime (Moka's TypeScript reference implementation)
+
+**Host**:
+A program that runs engines: the published worker, the site, the demo match, the match CLI, the bench and the tests.
