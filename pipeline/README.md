@@ -110,10 +110,10 @@ them in `dataset.load_training_data`.
 
 To try an export without versioning it, put it in `models/local/<id>/`
 (ignored by git) and build it with the memory of a registered model of the
-same architecture; it lands in `zig-out/local/`, where the match finds it:
+same architecture; its wasm lands in `zig-out/local/`, where the match finds it:
 
 ```sh
-zig build models wasm search -Dlocal-model=moka-19:synthetic-19-v2
+zig build wasm search -Dlocal-model=moka-19:synthetic-19-v2
 pnpm build:js
 node match/dist/match-19.js --first zig-reuse --first-model moka-19 --second katago \
   --katago-profile rank_1k --time 1000 --games 200

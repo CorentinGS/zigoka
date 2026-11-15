@@ -3,13 +3,18 @@ const std = @import("std");
 const WASM_PAGE_BYTES = 64 * 1024;
 const WASM_STACK_BYTES = 64 * 1024;
 
+/// The registry of the models the repository builds and tests, relative to the build root.
+const DEFAULT_REGISTRY = "models/registry.json";
+/// The model whose files the tests of tools/gen_model_layout.zig embed.
+const TOOL_TEST_MODEL_ID = "moka-9";
+
 const Model = struct {
     id: []const u8,
-    directory: []const u8,
+    /// The folder of go-model.json and go-model.bin.
+    directory: std.Build.LazyPath,
     memory_pages: u32,
     search: SearchCapacity,
-    /// Installed under zig-out/local/ instead of zig-out/, out of sight of the scripts and
-    /// tests that list zig-out/models/.
+    /// A local model (-Dlocal-model) is built under zig-out/local/ and has no fixtures.
     local: bool = false,
 };
 
@@ -19,36 +24,18 @@ const SearchCapacity = struct {
     memory_pages: u32,
 };
 
-const MODELS = [_]Model{
-    .{
-        .id = "moka-9",
-        .directory = "vendor/moka/model",
-        .memory_pages = 13,
-        .search = .{ .nodes = 8192, .edges = 524_288, .memory_pages = 332 },
-    },
-    .{
-        .id = "moka-9-v2",
-        .directory = "vendor/moka-v2/model",
-        .memory_pages = 27,
-        .search = .{ .nodes = 8192, .edges = 524_288, .memory_pages = 346 },
-    },
-    .{
-        .id = "synthetic-19",
-        .directory = "models/synthetic-19",
-        .memory_pages = 66,
-        .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 580 },
-    },
-    .{
-        .id = "synthetic-19-v2",
-        .directory = "models/synthetic-19-v2",
-        .memory_pages = 81,
-        .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 581 },
-    },
-    .{
-        .id = "moka-19",
-        .directory = "models/moka-19",
-        .memory_pages = 81,
-        .search = .{ .nodes = 4096, .edges = 819_200, .memory_pages = 581 },
+/// models/registry.json, with the file's own key names. Every field without a default is
+/// required, and an unknown or repeated key is refused.
+const Registry = struct {
+    models: []const struct {
+        id: []const u8,
+        /// Relative to the repository root: the parent of the registry's folder.
+        directory: []const u8,
+        kind: enum { trained, synthetic },
+        /// A synthetic model names the trained model whose trunk it keeps.
+        trunkFrom: ?[]const u8 = null,
+        memoryPages: u32,
+        search: struct { nodes: u32, edges: u32, memoryPages: u32 },
     },
 };
 
@@ -65,6 +52,8 @@ pub fn build(b: *std.Build) void {
     const fixtures = b.option([]const u8, "fixtures", "Reference data root directory (default: oracle/fixtures)") orelse "oracle/fixtures";
     const selected = b.option([]const u8, "model", "Build only this model");
     const local = b.option([]const u8, "local-model", "Also build models/local/<id>/ (never versioned) with the memory of a registered model of the same architecture: <id>:<registered id>");
+    const registry = b.option([]const u8, "registry", "Model registry (default: " ++ DEFAULT_REGISTRY ++ "); the repository root is the parent of its folder") orelse DEFAULT_REGISTRY;
+    const registered = loadRegistry(b, registry);
 
     const gen_tool = b.addExecutable(.{
         .name = "gen_model_layout",
@@ -82,7 +71,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const gen_step = b.step("gen", "Generate gen/<id>/model_layout.zig from each model manifest");
-    const models_step = b.step("models", "Install each model manifest and weights in zig-out/models/<id>/");
     const targets: WasmTargets = .{
         .target = wasm_target,
         .wasm = b.step("wasm", "Build zig-out/<id>/infer.wasm"),
@@ -98,7 +86,8 @@ pub fn build(b: *std.Build) void {
     });
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = host_geometry })).step);
 
-    const moka = MODELS[0];
+    const moka = findRegistered(registered, TOOL_TEST_MODEL_ID) orelse
+        fail("{s} has no model {s}, whose files the tests of tools/gen_model_layout.zig embed", .{ registry, TOOL_TEST_MODEL_ID });
     const tool_test_module = b.createModule(.{
         .root_source_file = b.path("tools/gen_model_layout.zig"),
         .target = host,
@@ -107,7 +96,7 @@ pub fn build(b: *std.Build) void {
     tool_test_module.addAnonymousImport("go-model.bin", .{ .root_source_file = modelFile(b, moka, "go-model.bin") });
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = tool_test_module })).step);
 
-    const models = withLocalModel(b, selectModels(b, selected), local);
+    const models = withLocalModel(b, registry, registered, selectModels(b, registered, selected), local);
     for (models) |model| {
         const manifest = modelFile(b, model, "go-model.json");
         const weights = modelFile(b, model, "go-model.bin");
@@ -118,9 +107,6 @@ pub fn build(b: *std.Build) void {
         gen_run.addFileArg(weights);
         const model_layout_source = gen_run.addOutputFileArg("model_layout.zig");
         gen_step.dependOn(&b.addInstallFile(model_layout_source, b.fmt("{s}gen/{s}/model_layout.zig", .{ prefix, model.id })).step);
-
-        models_step.dependOn(&b.addInstallFile(manifest, b.fmt("{s}models/{s}/go-model.json", .{ prefix, model.id })).step);
-        models_step.dependOn(&b.addInstallFile(weights, b.fmt("{s}models/{s}/go-model.bin", .{ prefix, model.id })).step);
 
         const memory_options = b.addOptions();
         memory_options.addOption(u32, "memory_pages", model.memory_pages);
@@ -168,15 +154,84 @@ pub fn build(b: *std.Build) void {
     }
 }
 
-fn selectModels(b: *std.Build, selected: ?[]const u8) []const Model {
-    const id = selected orelse return &MODELS;
-    for (&MODELS) |*model| {
+fn selectModels(b: *std.Build, registered: []const Model, selected: ?[]const u8) []const Model {
+    const id = selected orelse return registered;
+    for (registered) |*model| {
         if (std.mem.eql(u8, model.id, id)) return model[0..1];
     }
-    var ids: [MODELS.len][]const u8 = undefined;
-    for (MODELS, &ids) |model, *known| known.* = model.id;
-    const known = std.mem.join(b.allocator, ", ", &ids) catch @panic("OOM");
-    std.debug.print("unknown model {s}; known models: {s}\n", .{ id, known });
+    const ids = b.allocator.alloc([]const u8, registered.len) catch @panic("OOM");
+    for (registered, ids) |model, *known| known.* = model.id;
+    const known = std.mem.join(b.allocator, ", ", ids) catch @panic("OOM");
+    fail("unknown model {s}; known models: {s}", .{ id, known });
+}
+
+fn findRegistered(registered: []const Model, id: []const u8) ?Model {
+    for (registered) |model| {
+        if (std.mem.eql(u8, model.id, id)) return model;
+    }
+    return null;
+}
+
+/// Reads and checks the model registry. The configure step depends on its contents, so editing
+/// it reconfigures the build.
+fn loadRegistry(b: *std.Build, registry: []const u8) []const Model {
+    const absolute = std.fs.path.isAbsolute(registry);
+    b.dependOnFileContents(if (absolute) b.graph.cwdRelativePath(registry) else b.path(registry));
+
+    const file_path = if (absolute) registry else b.root.joinString(b.allocator, registry) catch @panic("OOM");
+    const bytes = std.Io.Dir.cwd().readFileAlloc(b.graph.io, file_path, b.allocator, .limited(1 << 20)) catch |err|
+        fail("{s}: {s}", .{ registry, @errorName(err) });
+
+    var scanner = std.json.Scanner.initCompleteInput(b.allocator, bytes);
+    var diagnostics: std.json.Diagnostics = .{};
+    scanner.enableDiagnostics(&diagnostics);
+    const parsed = std.json.parseFromTokenSourceLeaky(Registry, b.allocator, &scanner, .{}) catch |err|
+        fail("{s}:{d}:{d}: {s}", .{ registry, diagnostics.getLine(), diagnostics.getColumn(), @errorName(err) });
+
+    if (parsed.models.len == 0) fail("{s} lists no model", .{registry});
+
+    const models = b.allocator.alloc(Model, parsed.models.len) catch @panic("OOM");
+    for (parsed.models, models, 0..) |entry, *model, index| {
+        checkModelId(registry, entry.id);
+        for (parsed.models[0..index]) |previous| {
+            if (std.mem.eql(u8, previous.id, entry.id)) fail("{s}: model {s} is listed twice", .{ registry, entry.id });
+        }
+        switch (entry.kind) {
+            .trained => if (entry.trunkFrom != null) fail("{s}: {s} is trained and cannot have a trunkFrom", .{ registry, entry.id }),
+            .synthetic => {
+                const source = entry.trunkFrom orelse fail("{s}: synthetic model {s} needs a trunkFrom", .{ registry, entry.id });
+                const trunk_model = for (parsed.models) |candidate| {
+                    if (std.mem.eql(u8, candidate.id, source)) break candidate;
+                } else fail("{s}: {s} takes its trunk from {s}, which is not registered", .{ registry, entry.id, source });
+                if (trunk_model.kind != .trained) fail("{s}: {s} takes its trunk from {s}, which is not a trained model", .{ registry, entry.id, source });
+            },
+        }
+        model.* = .{
+            .id = entry.id,
+            .directory = fromRepositoryRoot(b, registry, entry.directory),
+            .memory_pages = entry.memoryPages,
+            .search = .{ .nodes = entry.search.nodes, .edges = entry.search.edges, .memory_pages = entry.search.memoryPages },
+        };
+    }
+    return models;
+}
+
+/// Model ids name folders: under zig-out/, oracle/fixtures/ and models/local/.
+fn checkModelId(registry: []const u8, id: []const u8) void {
+    if (id.len == 0 or std.mem.indexOfAny(u8, id, "/\\.") != null) {
+        fail("{s}: {s} is not a plain directory name", .{ registry, id });
+    }
+}
+
+/// A path relative to the repository root, which is the parent of the registry's folder.
+fn fromRepositoryRoot(b: *std.Build, registry: []const u8, sub_path: []const u8) std.Build.LazyPath {
+    const root = if (std.fs.path.dirname(registry)) |folder| std.fs.path.dirname(folder) else null;
+    const joined = if (root) |directory| b.pathJoin(&.{ directory, sub_path }) else sub_path;
+    return if (std.fs.path.isAbsolute(joined)) b.graph.cwdRelativePath(joined) else b.path(joined);
+}
+
+fn fail(comptime format: []const u8, args: anytype) noreturn {
+    std.debug.print(format ++ "\n", args);
     std.process.exit(1);
 }
 
@@ -184,30 +239,21 @@ fn selectModels(b: *std.Build, selected: ?[]const u8) []const Model {
 /// never versioned, built into zig-out/local/. It borrows the memory and search capacity of the
 /// registered model `like`, which must have the same architecture; the manifest checks of
 /// gen_model_layout still apply, and the native tests skip it.
-fn withLocalModel(b: *std.Build, models: []const Model, spec: ?[]const u8) []const Model {
+fn withLocalModel(b: *std.Build, registry: []const u8, registered: []const Model, models: []const Model, spec: ?[]const u8) []const Model {
     const text = spec orelse return models;
-    const colon = std.mem.indexOfScalar(u8, text, ':') orelse {
-        std.debug.print("-Dlocal-model expects <id>:<registered id>, got {s}\n", .{text});
-        std.process.exit(1);
-    };
+    const colon = std.mem.indexOfScalar(u8, text, ':') orelse fail("-Dlocal-model expects <id>:<registered id>, got {s}", .{text});
     const id = text[0..colon];
     const like_id = text[colon + 1 ..];
     if (id.len == 0 or std.mem.indexOfAny(u8, id, "/\\.") != null) {
-        std.debug.print("-Dlocal-model: {s} is not a plain directory name\n", .{id});
-        std.process.exit(1);
+        fail("-Dlocal-model: {s} is not a plain directory name", .{id});
     }
-    for (MODELS) |model| {
-        if (std.mem.eql(u8, model.id, id)) {
-            std.debug.print("-Dlocal-model: {s} is already a registered model\n", .{id});
-            std.process.exit(1);
-        }
-    }
-    const like = selectModels(b, like_id)[0];
+    if (findRegistered(registered, id) != null) fail("-Dlocal-model: {s} is already a registered model", .{id});
+    const like = selectModels(b, registered, like_id)[0];
     const list = b.allocator.alloc(Model, models.len + 1) catch @panic("OOM");
     @memcpy(list[0..models.len], models);
     list[models.len] = .{
         .id = id,
-        .directory = b.fmt("models/local/{s}", .{id}),
+        .directory = fromRepositoryRoot(b, registry, b.fmt("models/local/{s}", .{id})),
         .memory_pages = like.memory_pages,
         .search = like.search,
         .local = true,
@@ -216,7 +262,7 @@ fn withLocalModel(b: *std.Build, models: []const Model, spec: ?[]const u8) []con
 }
 
 fn modelFile(b: *std.Build, model: Model, name: []const u8) std.Build.LazyPath {
-    return b.path(b.fmt("{s}/{s}", .{ model.directory, name }));
+    return model.directory.path(b, name);
 }
 
 fn addInferWasm(

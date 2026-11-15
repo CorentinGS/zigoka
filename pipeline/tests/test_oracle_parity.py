@@ -1,4 +1,4 @@
-"""Parity against the oracle fixtures of every model, 9×9 and 19×19.
+"""Parity against the oracle fixtures of every registered model, 9×9 and 19×19.
 
 The fixtures come from Moka's own code (`pnpm oracle` in the repo root):
 19×19 positions are played by Moka's rules with the repo's 19×19
@@ -24,16 +24,12 @@ import torch
 from go_pipeline import board_spec
 from go_pipeline.board import GameState, encode_features, legal_moves, play_move
 from go_pipeline.manifest import import_model
+from model_registry import registered_models
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "oracle" / "fixtures"
-MODEL_DIRS = {
-    "moka-9": ROOT / "vendor" / "moka" / "model",
-    "moka-9-v2": ROOT / "vendor" / "moka-v2" / "model",
-    "synthetic-19": ROOT / "models" / "synthetic-19",
-    "synthetic-19-v2": ROOT / "models" / "synthetic-19-v2",
-}
-CASES = [(model, split) for model in MODEL_DIRS for split in ("calibration", "validation")]
+MODEL_DIRECTORIES = {model.id: model.directory for model in registered_models()}
+CASES = [(model, split) for model in MODEL_DIRECTORIES for split in ("calibration", "validation")]
 
 
 def _load(model: str, split: str) -> tuple[dict, np.ndarray, int] | None:
@@ -92,7 +88,7 @@ def test_rules_replay_matches_moka(model: str, split: str) -> None:
     assert checked >= 0.95 * index["positions"]
 
 
-@pytest.mark.parametrize("model", list(MODEL_DIRS))
+@pytest.mark.parametrize("model", list(MODEL_DIRECTORIES))
 def test_network_matches_moka_runtime(model: str) -> None:
     loaded = _load(model, "validation")
     if loaded is None:
@@ -100,7 +96,7 @@ def test_network_matches_moka_runtime(model: str) -> None:
     index, feats, size = loaded
     spec = board_spec(size)
     n = min(len(feats), 256)
-    net = import_model(MODEL_DIRS[model]).eval()
+    net = import_model(MODEL_DIRECTORIES[model]).eval()
     assert net.arch.board_size == size
     with torch.no_grad():
         logits, value = net(torch.from_numpy(np.ascontiguousarray(feats[:n])))

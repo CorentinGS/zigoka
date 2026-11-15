@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findModel, listModels } from "../models/registry.ts";
+
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const resolve = (relativePath) => path.join(rootDirectory, relativePath);
@@ -151,7 +153,6 @@ const buildNodeBundle = async ({ entryPoints, outfile, plugins = [] }) => {
 };
 
 const PUBLISHED_MODEL_ID = "moka-9";
-const MODEL_FILES = ["go-model.json", "go-model.bin"];
 const BENCHMARK_POSITION_COUNT = 100;
 const BENCHMARK_SETS = [
   { fileName: "logits-normal.f32", bytesPerPosition: (index) => index.moveCount * 4 },
@@ -169,38 +170,31 @@ const copyIfPresent = (sourcePath, destinationPath) => {
   fs.copyFileSync(sourcePath, destinationPath);
 };
 
-const listModels = () => {
-  const modelsDirectory = resolve("zig-out/models");
-
-  if (!fs.existsSync(modelsDirectory)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(modelsDirectory)
-    .filter((id) => fs.existsSync(path.join(modelsDirectory, id, "go-model.json")))
-    .sort();
+const copyModelFiles = (model, destinationDirectory) => {
+  fs.mkdirSync(destinationDirectory, { recursive: true });
+  fs.copyFileSync(model.manifestPath, path.join(destinationDirectory, "go-model.json"));
+  fs.copyFileSync(model.weightsPath, path.join(destinationDirectory, "go-model.bin"));
 };
 
-const copyModelFiles = (id, destinationDirectory) => {
-  for (const fileName of MODEL_FILES) {
-    copyIfPresent(
-      resolve(`zig-out/models/${id}/${fileName}`),
-      path.join(destinationDirectory, fileName),
-    );
+// `pnpm oracle` bundles before any wasm is built: the wasm files are copied when they are built.
+const copyWasmIfBuilt = (model, name, destinationPath) => {
+  const wasmPath = model.wasmIfBuilt(name);
+
+  if (wasmPath !== null) {
+    copyIfPresent(wasmPath, destinationPath);
   }
 };
 
 const copyPublishedFiles = () => {
-  copyModelFiles(PUBLISHED_MODEL_ID, resolve("dist"));
-  copyIfPresent(resolve(`zig-out/${PUBLISHED_MODEL_ID}/infer.wasm`), resolve("dist/infer.wasm"));
-  copyIfPresent(
-    resolve(`zig-out/${PUBLISHED_MODEL_ID}/search.wasm`),
-    resolve("demo/dist/search.wasm"),
-  );
+  const model = findModel(PUBLISHED_MODEL_ID);
+
+  copyModelFiles(model, resolve("dist"));
+  copyWasmIfBuilt(model, "infer.wasm", resolve("dist/infer.wasm"));
+  copyWasmIfBuilt(model, "search.wasm", resolve("demo/dist/search.wasm"));
 };
 
-const writeBenchmarkInputs = (id) => {
+const writeBenchmarkInputs = (model) => {
+  const { id } = model;
   const validationDirectory = resolve(`oracle/fixtures/${id}/validation`);
 
   if (!fs.existsSync(path.join(validationDirectory, "index.json"))) {
@@ -246,12 +240,9 @@ const writeBenchmarkInputs = (id) => {
     `${JSON.stringify(inputs, null, 2)}\n`,
     "utf8",
   );
-  copyModelFiles(id, benchDirectory);
-  copyIfPresent(resolve(`zig-out/${id}/infer.wasm`), path.join(benchDirectory, "infer.wasm"));
-  copyIfPresent(
-    resolve(`zig-out/${id}/infer-profile.wasm`),
-    path.join(benchDirectory, "infer-profile.wasm"),
-  );
+  copyModelFiles(model, benchDirectory);
+  copyWasmIfBuilt(model, "infer.wasm", path.join(benchDirectory, "infer.wasm"));
+  copyWasmIfBuilt(model, "infer-profile.wasm", path.join(benchDirectory, "infer-profile.wasm"));
   copyIfPresent(resolve("dist/worker.js"), path.join(benchDirectory, "worker.js"));
 };
 
@@ -266,8 +257,8 @@ const main = async () => {
 
   copyPublishedFiles();
 
-  for (const id of listModels()) {
-    writeBenchmarkInputs(id);
+  for (const model of listModels()) {
+    writeBenchmarkInputs(model);
   }
 };
 

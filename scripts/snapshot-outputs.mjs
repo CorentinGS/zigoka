@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { findModel } from "../models/registry.ts";
 import {
   getDimensions,
   instantiate,
@@ -38,7 +39,7 @@ const main = () => {
   const wasmDirectory = path.resolve(readOption("--wasm"));
   const fixturesDirectory = path.resolve(readOption("--fixtures"));
   const outputPath = path.resolve(readOption("--out"));
-  const weights = fs.readFileSync(path.resolve(`zig-out/models/${MODEL_ID}/go-model.bin`));
+  const weights = fs.readFileSync(findModel(MODEL_ID).weightsPath);
   const engines = ARTIFACTS.map((artifact) => {
     const wasmModule = new WebAssembly.Module(fs.readFileSync(path.join(wasmDirectory, artifact)));
 

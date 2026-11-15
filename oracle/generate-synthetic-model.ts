@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findModel, listModels, type RegisteredModel } from "../models/registry.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
 import { compareFiles } from "./fixture-files.ts";
 import { createMulberry32 } from "./mulberry32.ts";
@@ -11,14 +12,10 @@ import { createMulberry32 } from "./mulberry32.ts";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rootDirectory = path.resolve(scriptDirectory, "..", "..");
 
-// Each synthetic model keeps the trunk of a published 9×9 model and gets
-// generated 19×19 heads: synthetic-19 from Moka v1, synthetic-19-v2 from
-// Moka v2 (48/24 channels, 16 blocks), to measure what a v2 trunk costs at 19×19.
-const VARIANTS = [
-  { id: "synthetic-19", source: path.join(rootDirectory, "vendor", "moka", "model") },
-  { id: "synthetic-19-v2", source: path.join(rootDirectory, "vendor", "moka-v2", "model") },
-];
-
+// Each synthetic model of the registry keeps the trunk of the trained 9×9 model
+// it names and gets generated 19×19 heads: synthetic-19 from Moka v1,
+// synthetic-19-v2 from Moka v2 (48/24 channels, 16 blocks), to measure what a
+// v2 trunk costs at 19×19.
 const SEED = 19;
 const BOARD_SIZE = 19;
 const AREA = BOARD_SIZE * BOARD_SIZE;
@@ -288,8 +285,9 @@ const writeFiles = (directory: string, files: Map<string, Buffer>): void => {
   }
 };
 
-const generate = (id: string, sourceDirectory: string, shouldCheck: boolean): void => {
-  const outputDirectory = path.join(rootDirectory, "models", id);
+const generate = (model: RegisteredModel, sourceDirectory: string, shouldCheck: boolean): void => {
+  const { id, directory: outputDirectory } = model;
+  const label = path.relative(rootDirectory, outputDirectory);
   const { manifest, files } = buildModel(sourceDirectory);
 
   assertLoadable(manifest, files.get("go-model.bin") as Buffer);
@@ -297,14 +295,14 @@ const generate = (id: string, sourceDirectory: string, shouldCheck: boolean): vo
   if (!shouldCheck) {
     writeFiles(outputDirectory, files);
     process.stdout.write(
-      `Wrote models/${id} (${manifest.weightsBytes} bytes, sha256 ${manifest.sha256}).\n`,
+      `Wrote ${label} (${manifest.weightsBytes} bytes, sha256 ${manifest.sha256}).\n`,
     );
 
     return;
   }
 
   if (!fs.existsSync(path.join(outputDirectory, "go-model.json"))) {
-    fail(`models/${id} is missing. Run "pnpm models" first.`);
+    fail(`${label} is missing. Run "pnpm models" first.`);
   }
 
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `${id}-`));
@@ -313,17 +311,19 @@ const generate = (id: string, sourceDirectory: string, shouldCheck: boolean): vo
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 
   if (difference) {
-    fail(`models/${id} is not reproducible: ${difference}.`);
+    fail(`${label} is not reproducible: ${difference}.`);
   }
 
-  process.stdout.write(`models/${id} is reproducible, byte for byte.\n`);
+  process.stdout.write(`${label} is reproducible, byte for byte.\n`);
 };
 
 const main = (): void => {
   const shouldCheck = process.argv.includes("--check");
 
-  for (const { id, source } of VARIANTS) {
-    generate(id, source, shouldCheck);
+  for (const model of listModels()) {
+    if (model.kind === "synthetic") {
+      generate(model, findModel(model.trunkFrom).directory, shouldCheck);
+    }
   }
 };
 

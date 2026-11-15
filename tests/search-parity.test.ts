@@ -12,6 +12,7 @@ import {
   writePosition,
   type SearchEngine,
 } from "../js/search-engine.ts";
+import { listModels, type RegisteredModel } from "../models/registry.ts";
 import { createMulberry32 } from "../oracle/mulberry32.ts";
 
 type MokaRules = typeof import("./moka-rules.ts");
@@ -24,53 +25,39 @@ const STATUS_GAME_OVER = 4;
 const loadRules = async (size: number) =>
   (await import(path.join(rootDirectory, `tests/dist/moka-rules-${size}.js`))) as MokaRules;
 
-const MODELS = [
-  {
-    id: "moka-9",
-    loadRules: () => loadRules(9),
-    randomGames: 40,
-    policyGames: 10,
-    deadStoneInterval: 5,
-    searchPositions: 12,
-    searchVisits: 150,
-  },
-  {
-    id: "moka-9-v2",
-    loadRules: () => loadRules(9),
-    randomGames: 10,
-    policyGames: 5,
-    deadStoneInterval: 5,
-    searchPositions: 8,
-    searchVisits: 150,
-  },
-  {
-    id: "synthetic-19",
-    loadRules: () => loadRules(19),
-    randomGames: 4,
-    policyGames: 2,
-    deadStoneInterval: 60,
-    searchPositions: 4,
-    searchVisits: 60,
-  },
-  {
-    id: "synthetic-19-v2",
-    loadRules: () => loadRules(19),
-    randomGames: 2,
-    policyGames: 1,
-    deadStoneInterval: 60,
-    searchPositions: 2,
-    searchVisits: 60,
-  },
-  {
-    id: "moka-19",
-    loadRules: () => loadRules(19),
-    randomGames: 2,
-    policyGames: 1,
-    deadStoneInterval: 60,
-    searchPositions: 2,
-    searchVisits: 60,
-  },
-];
+type Budget = {
+  randomGames: number;
+  policyGames: number;
+  deadStoneInterval: number;
+  searchPositions: number;
+  searchVisits: number;
+};
+
+// One budget per board size, so that registering a model needs no edit here.
+const BUDGETS: Record<number, Budget> = {
+  9: { randomGames: 10, policyGames: 5, deadStoneInterval: 5, searchPositions: 8, searchVisits: 150 },
+  19: { randomGames: 2, policyGames: 1, deadStoneInterval: 60, searchPositions: 2, searchVisits: 60 },
+};
+
+// moka-9, the reference model, plays the most.
+const REFERENCE_MODEL_ID = "moka-9";
+const REFERENCE_BUDGET: Budget = {
+  randomGames: 40,
+  policyGames: 10,
+  deadStoneInterval: 5,
+  searchPositions: 12,
+  searchVisits: 150,
+};
+
+const getBudget = ({ id, boardSize }: RegisteredModel): Budget => {
+  const budget = id === REFERENCE_MODEL_ID ? REFERENCE_BUDGET : BUDGETS[boardSize];
+
+  if (!budget) {
+    throw new Error(`No search-parity budget for board size ${boardSize} (model ${id}).`);
+  }
+
+  return budget;
+};
 
 const readArrayBuffer = (filePath: string) => {
   const bytes = fs.readFileSync(filePath);
@@ -78,20 +65,23 @@ const readArrayBuffer = (filePath: string) => {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 };
 
-const loadEngines = async (id: string) => {
-  const weights = readArrayBuffer(path.join(rootDirectory, `zig-out/models/${id}/go-model.bin`));
-  const searchModule = new WebAssembly.Module(
-    fs.readFileSync(path.join(rootDirectory, `zig-out/${id}/search.wasm`)),
-  );
-  const inferModule = new WebAssembly.Module(
-    fs.readFileSync(path.join(rootDirectory, `zig-out/${id}/infer.wasm`)),
-  );
+const loadEngines = async ({ weightsPath, wasm }: RegisteredModel) => {
+  const weights = readArrayBuffer(weightsPath);
+  const searchModule = new WebAssembly.Module(fs.readFileSync(wasm("search.wasm")));
+  const inferModule = new WebAssembly.Module(fs.readFileSync(wasm("infer.wasm")));
 
   return {
     searchEngine: await createSearchEngine(searchModule, weights.slice(0)),
     inferEngine: await createEngine(inferModule, weights.slice(0)),
   };
 };
+
+const MODELS = listModels().map((model) => ({
+  id: model.id,
+  loadRules: () => loadRules(model.boardSize),
+  loadEngines: () => loadEngines(model),
+  ...getBudget(model),
+}));
 
 /** Plays seeded games to the end: uniform over legal moves, or sampled from the policy. */
 const collectGames = (
@@ -195,7 +185,7 @@ const checkPlay = (rules: MokaRules, engine: SearchEngine, state: GoGameState, m
 for (const model of MODELS) {
   test(`${model.id}: rules match Moka on random and policy games`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine, inferEngine } = await loadEngines(model.id);
+    const { searchEngine, inferEngine } = await model.loadEngines();
     const policy = (state: GoGameState) =>
       inferEngine.infer(rules.encodeStudentFeatures(state)).policyLogits;
     const games = [
@@ -224,7 +214,7 @@ for (const model of MODELS) {
 
   test(`${model.id}: the WASM search visits like match/search.ts with the Zig network`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine, inferEngine } = await loadEngines(model.id);
+    const { searchEngine, inferEngine } = await model.loadEngines();
     const policy = (state: GoGameState) =>
       inferEngine.infer(rules.encodeStudentFeatures(state)).policyLogits;
     const states = collectGames(rules, 2, 4, policy).flatMap((game) => game.slice(0, -1));
@@ -246,7 +236,7 @@ for (const model of MODELS) {
 
   test(`${model.id}: the WASM search reuses its tree like match/search.ts`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine, inferEngine } = await loadEngines(model.id);
+    const { searchEngine, inferEngine } = await model.loadEngines();
     const evaluate = (features: Float32Array) => inferEngine.infer(features);
     const policy = (state: GoGameState) => evaluate(rules.encodeStudentFeatures(state)).policyLogits;
     const [game] = collectGames(rules, 1, 6, policy);
@@ -285,7 +275,7 @@ for (const model of MODELS) {
 
   test(`${model.id}: batched search keeps the visit count and plays legal moves`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine } = await loadEngines(model.id);
+    const { searchEngine } = await model.loadEngines();
     const states = collectGames(rules, 1, 5).flat().filter((state) => !rules.isGameOver(state));
 
     for (const batch of [2, 4, 8]) {
@@ -304,7 +294,7 @@ for (const model of MODELS) {
 
   test(`${model.id}: the search refuses a finished game`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine } = await loadEngines(model.id);
+    const { searchEngine } = await model.loadEngines();
     const pass = rules.createGameState().board.length;
     const finished = rules.playMove(rules.playMove(rules.createGameState(), pass)!, pass)!;
 
@@ -314,7 +304,7 @@ for (const model of MODELS) {
 
   test(`${model.id}: the search stops when the tree is full`, async () => {
     const rules = await model.loadRules();
-    const { searchEngine } = await loadEngines(model.id);
+    const { searchEngine } = await model.loadEngines();
     const result = searchEngine.search(rules.createGameState(), { timeMs: Infinity, maxVisits: 1_000_000 });
 
     assert.ok(result.poolFull);
@@ -332,7 +322,7 @@ for (const model of MODELS) {
       return;
     }
 
-    const { searchEngine } = await loadEngines(model.id);
+    const { searchEngine } = await model.loadEngines();
 
     // Black wall on column 1, White wall on column 2, and a White stone in atari in the corner of
     // Black's side. White has just passed. Nothing is pass-dead, but the aftermath captures the stone.

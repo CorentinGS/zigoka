@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { listModels } from "../models/registry.ts";
 import {
   STATUS_OK,
   findParityMismatch,
@@ -33,14 +34,6 @@ const STATUS_BAD_BATCH_COUNT = 2;
 const ARTIFACTS = ["infer.wasm", "infer-safe.wasm"];
 const FIXTURE_SETS = ["calibration", "validation"];
 
-const listModels = () =>
-  fs
-    .readdirSync(resolve("zig-out/models"))
-    .filter((id) => fs.existsSync(resolve(`zig-out/models/${id}/go-model.json`)))
-    .sort((left, right) =>
-      left === SNAPSHOT_MODEL_ID ? -1 : right === SNAPSHOT_MODEL_ID ? 1 : left.localeCompare(right),
-    );
-
 const readFixtureSets = (id) =>
   FIXTURE_SETS.map((name) => resolve(`oracle/fixtures/${id}/${name}`))
     .filter((directory) => fs.existsSync(path.join(directory, "index.json")))
@@ -49,9 +42,7 @@ const readFixtureSets = (id) =>
 const describeArtifact = (model, artifact, fixtureSets) => {
   const instantiate = (wasmModule, options) =>
     instantiateWithWeights(wasmModule, model.weights, options);
-  const wasmModule = new WebAssembly.Module(
-    fs.readFileSync(resolve(`zig-out/${model.id}/${artifact}`)),
-  );
+  const wasmModule = new WebAssembly.Module(fs.readFileSync(model.wasm(artifact)));
   const engine = instantiate(wasmModule, { loadWeights: true });
   const dimensions = getDimensions(engine);
   const { moveCount } = dimensions;
@@ -248,7 +239,7 @@ const describeSnapshotChecks = (label, artifact, runs, moveCount) => {
   });
 };
 
-for (const id of listModels()) {
+for (const { id, manifest, weightsPath, wasm } of listModels()) {
   const fixtureSets = readFixtureSets(id);
 
   if (!fixtureSets.some(({ name }) => name === "validation")) {
@@ -258,11 +249,7 @@ for (const id of listModels()) {
     continue;
   }
 
-  const model = {
-    id,
-    manifest: JSON.parse(fs.readFileSync(resolve(`zig-out/models/${id}/go-model.json`), "utf8")),
-    weights: fs.readFileSync(resolve(`zig-out/models/${id}/go-model.bin`)),
-  };
+  const model = { id, manifest, weights: fs.readFileSync(weightsPath), wasm };
 
   for (const artifact of ARTIFACTS) {
     describeArtifact(model, artifact, fixtureSets);

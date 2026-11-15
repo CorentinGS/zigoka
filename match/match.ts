@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
+import { findModel } from "../models/registry.ts";
 import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
 import { createGameState, encodeStudentFeatures, playMove, selectHighestLegalMove } from "../vendor/moka/src/game.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
@@ -68,44 +69,27 @@ type CliGameResult = GameResult & { mokaScore?: number };
 
 type GameTiming = { index: number; slot: number; startMs: number; endMs: number };
 
-/** Registered models are built into zig-out/, local ones (zig build -Dlocal-model) into zig-out/local/. */
-const findBuildDirectory = (modelId: string) => {
-  const local = path.join(rootDirectory, "zig-out", "local");
-
-  return fs.existsSync(path.join(local, "models", modelId, "go-model.json")) ? local : path.join(rootDirectory, "zig-out");
-};
-
+/** A registered model, or a local one built with `zig build -Dlocal-model`. */
 const loadEngines = async (modelId: string): Promise<Engines> => {
-  const buildDirectory = findBuildDirectory(modelId);
-  const modelDirectory = path.join(buildDirectory, "models", modelId);
-  const wasmDirectory = path.join(buildDirectory, modelId);
+  const model = findModel(modelId);
+  const { manifest, boardSize } = model;
 
-  if (!fs.existsSync(path.join(modelDirectory, "go-model.json"))) {
-    throw new Error(
-      `Unknown model "${modelId}": neither zig-out/models/${modelId} nor zig-out/local/models/${modelId} exists.`,
-    );
-  }
-
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(modelDirectory, "go-model.json"), "utf8"),
-  ) as GoModelManifest;
-
-  if (manifest.architecture.boardSize !== GO_BOARD_SIZE) {
+  if (boardSize !== GO_BOARD_SIZE) {
     throw new Error(
       `This match plays ${GO_BOARD_SIZE}x${GO_BOARD_SIZE} games; model "${modelId}" is ` +
-        `${manifest.architecture.boardSize}x${manifest.architecture.boardSize}.`,
+        `${boardSize}x${boardSize}.`,
     );
   }
 
-  const weights = fs.readFileSync(path.join(modelDirectory, "go-model.bin"));
+  const weights = fs.readFileSync(model.weightsPath);
   const weightsBuffer = weights.buffer.slice(
     weights.byteOffset,
     weights.byteOffset + weights.byteLength,
   );
-  const module = await WebAssembly.compile(fs.readFileSync(path.join(wasmDirectory, "infer.wasm")));
+  const module = await WebAssembly.compile(fs.readFileSync(model.wasm("infer.wasm")));
   const zig = await createEngine(module, weightsBuffer.slice(0));
   const searchEngine = await createSearchEngine(
-    await WebAssembly.compile(fs.readFileSync(path.join(wasmDirectory, "search.wasm"))),
+    await WebAssembly.compile(fs.readFileSync(model.wasm("search.wasm"))),
     weightsBuffer.slice(0),
   );
   const moka = GoModelRuntime.create(manifest, weightsBuffer.slice(0));

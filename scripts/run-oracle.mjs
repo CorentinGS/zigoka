@@ -4,11 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { listModels } from "../models/registry.ts";
+
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const resolve = (relativePath) => path.join(rootDirectory, relativePath);
 
-const FIRST_MODEL_ID = "moka-9";
 const FORMAT_V1_DIRECTORIES = ["calibration", "validation", "tensors"];
 
 const fail = (message) => {
@@ -36,27 +37,20 @@ const removeFormatV1Directories = () => {
   }
 };
 
-const listModels = (modelsDirectory, selected) => {
-  if (!fs.existsSync(modelsDirectory)) {
-    fail(`${modelsDirectory} is missing. Run "zig build models" first.`);
-  }
-
-  const ids = fs
-    .readdirSync(modelsDirectory)
-    .filter((id) => fs.existsSync(path.join(modelsDirectory, id, "go-model.json")))
-    .sort((left, right) =>
-      left === FIRST_MODEL_ID ? -1 : right === FIRST_MODEL_ID ? 1 : left.localeCompare(right),
-    );
+const selectModels = (registry, selected) => {
+  const models = listModels({ registry });
 
   if (selected === null) {
-    return ids;
+    return models;
   }
 
-  if (!ids.includes(selected)) {
-    fail(`unknown model ${selected}; known models: ${ids.join(", ")}`);
+  const model = models.find(({ id }) => id === selected);
+
+  if (!model) {
+    fail(`unknown model ${selected}; known models: ${models.map(({ id }) => id).join(", ")}`);
   }
 
-  return [selected];
+  return [model];
 };
 
 /** Runs one generator, its stdout and stderr kept together until it exits. */
@@ -92,12 +86,9 @@ const runInParallel = async (tasks, limit) => {
 
 const main = async () => {
   const shouldCheck = process.argv.includes("--check");
-  const modelsDirectory = path.resolve(readValueOption("--models-dir") ?? resolve("zig-out/models"));
-  const models = listModels(modelsDirectory, readValueOption("--model")).map((id) => {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(modelsDirectory, id, "go-model.json"), "utf8"),
-    );
-    const boardSize = manifest.architecture.boardSize;
+  const registryOption = readValueOption("--registry");
+  const registry = registryOption === null ? undefined : path.resolve(registryOption);
+  const models = selectModels(registry, readValueOption("--model")).map(({ id, boardSize }) => {
     const bundle = resolve(`oracle/dist/generate-${boardSize}.js`);
 
     if (!fs.existsSync(bundle)) {
@@ -113,7 +104,11 @@ const main = async () => {
   // one's output is printed in one block once it finishes, in the order they finish.
   const results = await runInParallel(
     models.map(({ id, bundle }) => () => {
-      const args = [bundle, "--model", id, "--models-dir", modelsDirectory];
+      const args = [bundle, "--model", id];
+
+      if (registry !== undefined) {
+        args.push("--registry", registry);
+      }
 
       if (shouldCheck) {
         args.push("--check");

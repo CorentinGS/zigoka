@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findModel } from "../models/registry.ts";
 import {
   GO_BOARD_AREA,
   GO_BOARD_SIZE,
@@ -40,7 +41,6 @@ const FEATURE_COUNT = GO_BOARD_AREA * PLANE_COUNT;
 const MOVE_COUNT = GO_BOARD_AREA + 1;
 
 const FORMAT_VERSION = 2;
-const TRAINED_MODEL_IDS = new Set(["moka-9", "moka-9-v2"]);
 const JOURNAL_PROBE_MODEL_ID = "moka-9";
 const JOURNAL_PROBE_BLACK_MOVES = [20, 24, 56, 60];
 
@@ -100,6 +100,8 @@ type Dataset = {
 
 type Model = {
   id: string;
+  /** A synthetic model's outputs carry no Go knowledge, so its probes must stay healthy. */
+  synthetic: boolean;
   manifest: GoModelManifest;
   weightsBuffer: ArrayBuffer;
   sha256: string;
@@ -136,23 +138,29 @@ const readValueOption = (name: string): string | null => {
   return process.argv[index + 1] as string;
 };
 
-const readModel = (modelsDirectory: string, id: string): Model => {
-  const modelDirectory = path.join(modelsDirectory, id);
-  const manifestPath = path.join(modelDirectory, "go-model.json");
+const readModel = (id: string, registry: string | undefined): Model => {
+  let model: ReturnType<typeof findModel>;
 
-  if (!fs.existsSync(manifestPath)) {
-    fail(`${manifestPath} is missing. Run "zig build models" first.`);
+  try {
+    model = findModel(id, { registry });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
 
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as GoModelManifest;
-  const weights = fs.readFileSync(path.join(modelDirectory, "go-model.bin"));
+  const weights = fs.readFileSync(model.weightsPath);
   const weightsBuffer = weights.buffer.slice(
     weights.byteOffset,
     weights.byteOffset + weights.byteLength,
   ) as ArrayBuffer;
   const sha256 = crypto.createHash("sha256").update(weights).digest("hex");
 
-  return { id, manifest, weightsBuffer, sha256 };
+  return {
+    id,
+    synthetic: !model.local && model.kind === "synthetic",
+    manifest: model.manifest,
+    weightsBuffer,
+    sha256,
+  };
 };
 
 const assertBoardSize = (model: Model): void => {
@@ -590,15 +598,13 @@ const verifyVendoredFiles = (vendorDirectory: string): void => {
 const main = (): void => {
   const shouldCheck = process.argv.includes("--check");
   const modelId = readValueOption("--model") ?? fail("Missing option --model <id>.");
-  const modelsDirectory = path.resolve(
-    readValueOption("--models-dir") ?? path.join(rootDirectory, "zig-out", "models"),
-  );
+  const registry = readValueOption("--registry") ?? undefined;
   const plan = FIXTURE_PLANS[GO_BOARD_SIZE] ?? fail(`No fixture plan for board size ${GO_BOARD_SIZE}.`);
 
   vendorDirectories.forEach(verifyVendoredFiles);
   process.stdout.write("Vendored files match their digests.\n");
 
-  const model = readModel(modelsDirectory, modelId);
+  const model = readModel(modelId, registry);
   assertBoardSize(model);
 
   const runtimes = createRuntimes(model);
@@ -619,7 +625,7 @@ const main = (): void => {
     const health = runtimes.health.counter.toJSON();
     runtimes.health.counter = null;
 
-    if (!TRAINED_MODEL_IDS.has(model.id)) {
+    if (model.synthetic) {
       try {
         assertHealthy(model.id, health);
       } catch (error) {

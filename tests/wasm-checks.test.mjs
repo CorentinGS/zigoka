@@ -5,6 +5,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
+import { findModel, listModels } from "../models/registry.ts";
+
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const ARTIFACTS = [
@@ -38,7 +40,6 @@ const ARTIFACTS = [
 ];
 const PUBLISHED_ARTIFACT = "infer.wasm";
 const PUBLISHED_MODEL_ID = "moka-9";
-const PUBLISHED_MEMORY_PAGES = 13;
 const DIST_FILES = ["go-model.bin", "go-model.json", "infer.wasm", "worker.js"];
 const GZIP_SIZE_CAP_BYTES = 32 * 1024;
 const GZIP_LEVEL = 9;
@@ -130,15 +131,10 @@ const countSequence = (bytes, sequence) => {
   return count;
 };
 
-const modelIds = fs
-  .readdirSync(path.join(rootDirectory, "zig-out", "models"))
-  .filter((id) => fs.existsSync(path.join(rootDirectory, "zig-out", "models", id, "go-model.json")))
-  .sort();
-
-for (const id of modelIds) {
+for (const model of listModels()) {
   for (const { name: artifact, extraExports } of ARTIFACTS) {
-    const label = `${id}/${artifact}`;
-    const bytes = fs.readFileSync(path.join(rootDirectory, "zig-out", id, artifact));
+    const label = `${model.id}/${artifact}`;
+    const bytes = fs.readFileSync(model.wasm(artifact));
     const sections = readSections(bytes);
 
     test(`${label}: the code uses v128 instructions`, () => {
@@ -150,15 +146,15 @@ for (const id of modelIds) {
       );
     });
 
-    test(`${label}: the memory is declared with initial == maximum`, () => {
+    test(`${label}: the memory is the registry's, with initial == maximum`, () => {
       const limits = readMemoryLimits(sections.get(MEMORY_SECTION_ID));
 
       assert.equal(limits.count, 1);
       assert.equal(limits.maximum, limits.initial);
-
-      if (id === PUBLISHED_MODEL_ID && artifact.startsWith("infer") && artifact !== "infer-profile.wasm") {
-        assert.equal(limits.initial, PUBLISHED_MEMORY_PAGES);
-      }
+      assert.equal(
+        limits.initial,
+        artifact === "search.wasm" ? model.search.memoryPages : model.memoryPages,
+      );
     });
 
     test(`${label}: the code has no memory.grow (G5)`, () => {
@@ -178,9 +174,7 @@ for (const id of modelIds) {
 }
 
 test(`${PUBLISHED_MODEL_ID}/${PUBLISHED_ARTIFACT}: the gzip size stays under the cap`, (t) => {
-  const bytes = fs.readFileSync(
-    path.join(rootDirectory, "zig-out", PUBLISHED_MODEL_ID, PUBLISHED_ARTIFACT),
-  );
+  const bytes = fs.readFileSync(findModel(PUBLISHED_MODEL_ID).wasm(PUBLISHED_ARTIFACT));
   const gzipBytes = zlib.gzipSync(bytes, { level: GZIP_LEVEL }).length;
 
   t.diagnostic(`${bytes.length} bytes, ${gzipBytes} after gzip (cap ${GZIP_SIZE_CAP_BYTES})`);

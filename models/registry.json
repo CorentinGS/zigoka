@@ -1,0 +1,41 @@
+{
+  "models": [
+    {
+      "id": "moka-9",
+      "directory": "vendor/moka/model",
+      "kind": "trained",
+      "memoryPages": 13,
+      "search": { "nodes": 8192, "edges": 524288, "memoryPages": 332 }
+    },
+    {
+      "id": "moka-9-v2",
+      "directory": "vendor/moka-v2/model",
+      "kind": "trained",
+      "memoryPages": 27,
+      "search": { "nodes": 8192, "edges": 524288, "memoryPages": 346 }
+    },
+    {
+      "id": "synthetic-19",
+      "directory": "models/synthetic-19",
+      "kind": "synthetic",
+      "trunkFrom": "moka-9",
+      "memoryPages": 66,
+      "search": { "nodes": 4096, "edges": 819200, "memoryPages": 580 }
+    },
+    {
+      "id": "synthetic-19-v2",
+      "directory": "models/synthetic-19-v2",
+      "kind": "synthetic",
+      "trunkFrom": "moka-9-v2",
+      "memoryPages": 81,
+      "search": { "nodes": 4096, "edges": 819200, "memoryPages": 581 }
+    },
+    {
+      "id": "moka-19",
+      "directory": "models/moka-19",
+      "kind": "trained",
+      "memoryPages": 81,
+      "search": { "nodes": 4096, "edges": 819200, "memoryPages": 581 }
+    }
+  ]
+}

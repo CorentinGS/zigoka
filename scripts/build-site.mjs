@@ -3,8 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findModel } from "../models/registry.ts";
+
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const resolve = (relativePath) => path.join(rootDirectory, relativePath);
+// Model files come from the registry module as absolute paths; the other sources are relative.
+const resolve = (filePath) => path.resolve(rootDirectory, filePath);
 const publicDirectory = resolve("site/public");
 
 // site/_headers is Cloudflare Pages' header file. Pages joins the headers of every
@@ -40,15 +43,19 @@ const EDITIONS = [
   },
 ];
 
-const editionFiles = ({ page, dist, modelId }) => [
-  [page, "index.html"],
-  [`${dist}/play.js`, "play.js"],
-  [`${dist}/engine-worker.js`, "engine-worker.js"],
-  [`zig-out/${modelId}/search.wasm`, "search.wasm"],
-  [`zig-out/${modelId}/infer.wasm`, "infer.wasm"],
-  [`zig-out/models/${modelId}/go-model.json`, "go-model.json"],
-  [`zig-out/models/${modelId}/go-model.bin`, "go-model.bin"],
-];
+const editionFiles = ({ page, dist, modelId }) => {
+  const model = findModel(modelId);
+
+  return [
+    [page, "index.html"],
+    [`${dist}/play.js`, "play.js"],
+    [`${dist}/engine-worker.js`, "engine-worker.js"],
+    [model.wasm("search.wasm"), "search.wasm"],
+    [model.wasm("infer.wasm"), "infer.wasm"],
+    [model.manifestPath, "go-model.json"],
+    [model.weightsPath, "go-model.bin"],
+  ];
+};
 
 const PUBLISHED_FILES = [
   ...SHARED_FILES,

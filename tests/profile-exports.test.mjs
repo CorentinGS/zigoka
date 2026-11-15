@@ -4,6 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { listModels } from "../models/registry.ts";
 import {
   STATUS_OK,
   findParityMismatch,
@@ -21,15 +22,10 @@ const MAX_BATCH = 8;
 const STATUS_WEIGHTS_NOT_LOADED = 1;
 const STATUS_BAD_BATCH_COUNT = 2;
 
-const modelIds = fs
-  .readdirSync(resolve("zig-out/models"))
-  .filter((id) => fs.existsSync(resolve(`zig-out/models/${id}/go-model.json`)))
-  .sort();
-
-for (const id of modelIds) {
+for (const { id, weightsPath, wasm } of listModels()) {
   const label = `${id}/infer-profile.wasm`;
-  const wasmModule = new WebAssembly.Module(fs.readFileSync(resolve(`zig-out/${id}/infer-profile.wasm`)));
-  const weights = fs.readFileSync(resolve(`zig-out/models/${id}/go-model.bin`));
+  const wasmModule = new WebAssembly.Module(fs.readFileSync(wasm("infer-profile.wasm")));
+  const weights = fs.readFileSync(weightsPath);
 
   test(`${label}: forward_trunk checks the batch count, then the weights`, () => {
     const fresh = instantiate(wasmModule, weights, { loadWeights: false });
