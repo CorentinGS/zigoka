@@ -1,6 +1,6 @@
 import { GoModelWorkerClient } from "../vendor/moka/src/client.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
-import { createEngine } from "../js/engine.ts";
+import { compileEngines, fetchFiles, type ReadFile } from "../js/engines.ts";
 import { findParityMismatch } from "./parity-rule.ts";
 
 const DEFAULT_MODEL_ID = "moka-9";
@@ -52,20 +52,6 @@ type BenchEngine = {
   infer: (features: Float32Array) => Promise<InferenceResult | null>;
   inferOutputs: (features: Float32Array) => Promise<InferenceResult>;
   dispose: () => void;
-};
-
-type ProfileExports = {
-  memory: WebAssembly.Memory;
-  weights_ptr: () => number;
-  weights_capacity: () => number;
-  load_weights: () => void;
-  input_ptr: () => number;
-  policy_ptr: () => number;
-  value_ptr: () => number;
-  feature_count: () => number;
-  policy_moves: () => number;
-  infer: (count: number) => number;
-  forward_trunk: (count: number) => number;
 };
 
 declare global {
@@ -177,11 +163,20 @@ const createMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => 
   };
 };
 
-const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
+const readZigFiles = (urls: ModelUrls): ReadFile =>
+  fetchFiles({
+    "infer.wasm": urls.zigWasm,
+    "infer-profile.wasm": urls.zigProfileWasm,
+    "go-model.bin": urls.weights,
+  });
+
+const createZigMainThreadEngine = async (urls: ModelUrls, boardSize: number): Promise<BenchEngine> => {
+  const read = readZigFiles(urls);
   // The Worker compiles infer.wasm when it loads, before `initialize`: the measure leaves it out here too.
-  const module = await WebAssembly.compile(await fetchArrayBuffer(urls.zigWasm));
+  const compiled = await compileEngines(read, ["infer.wasm"]);
   const initializationStartTime = performance.now();
-  const engine = await createEngine(module, await fetchArrayBuffer(urls.weights));
+  const loaded = await compiled.load(await read("go-model.bin"), { boardSize });
+  const engine = await loaded.createEngine();
   const infer = async (features: Float32Array) => engine.infer(features);
 
   return {
@@ -192,49 +187,21 @@ const createZigMainThreadEngine = async (urls: ModelUrls): Promise<BenchEngine> 
   };
 };
 
-const assertStatusOk = (name: string, status: number): void => {
-  if (status !== 0) {
-    throw new Error(`${name}(1) returned status ${status}.`);
-  }
-};
-
-const createZigTrunkEngine = async (urls: ModelUrls): Promise<BenchEngine> => {
+const createZigTrunkEngine = async (urls: ModelUrls, boardSize: number): Promise<BenchEngine> => {
+  const read = readZigFiles(urls);
   const initializationStartTime = performance.now();
-  const { instance } = await WebAssembly.instantiate(
-    await fetchArrayBuffer(urls.zigProfileWasm),
-    {},
-  );
-  const exports = instance.exports as unknown as ProfileExports;
-  const weights = await fetchArrayBuffer(urls.weights);
-  const weightsCapacity = exports.weights_capacity();
-
-  if (weights.byteLength !== weightsCapacity) {
-    throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
-  }
-
-  const memory = exports.memory.buffer;
-
-  new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
-  exports.load_weights();
-
-  const input = new Float32Array(memory, exports.input_ptr(), exports.feature_count());
-  const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
-  const value = new Float64Array(memory, exports.value_ptr(), 1);
+  const compiled = await compileEngines(read, ["infer-profile.wasm"]);
+  const loaded = await compiled.load(await read("go-model.bin"), { boardSize });
+  const engine = await loaded.createProfileEngine();
 
   return {
     initializationMs: performance.now() - initializationStartTime,
     infer: async (features: Float32Array) => {
-      input.set(features);
-      assertStatusOk("forward_trunk", exports.forward_trunk(1));
+      engine.forwardTrunk(features);
 
       return null;
     },
-    inferOutputs: async (features: Float32Array) => {
-      input.set(features);
-      assertStatusOk("infer", exports.infer(1));
-
-      return { policyLogits: policy.slice(), value: value[0] as number };
-    },
+    inferOutputs: async (features: Float32Array) => engine.infer(features),
     dispose: () => undefined,
   };
 };
@@ -244,13 +211,14 @@ const createBenchEngine = (
   useWorker: boolean,
   stage: string,
   urls: ModelUrls,
+  boardSize: number,
 ): Promise<BenchEngine> => {
   if (stage === "trunk") {
     if (runtime !== "zig" || useWorker) {
       throw new Error("The trunk stage needs runtime=zig and worker=0.");
     }
 
-    return createZigTrunkEngine(urls);
+    return createZigTrunkEngine(urls, boardSize);
   }
 
   if (stage !== "full") {
@@ -262,7 +230,9 @@ const createBenchEngine = (
   }
 
   if (runtime === "zig") {
-    return useWorker ? createWorkerEngine(urls.zigWorker, urls) : createZigMainThreadEngine(urls);
+    return useWorker
+      ? createWorkerEngine(urls.zigWorker, urls)
+      : createZigMainThreadEngine(urls, boardSize);
   }
 
   throw new Error(`Unknown runtime ${runtime}; expected moka or zig.`);
@@ -362,7 +332,7 @@ const runBenchmark = async () => {
     );
   }
 
-  const engine = await createBenchEngine(runtime, useWorker, stage, urls);
+  const engine = await createBenchEngine(runtime, useWorker, stage, urls, inputs.boardSize);
 
   try {
     const firstTenMs: number[] = [];

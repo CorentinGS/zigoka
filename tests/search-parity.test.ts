@@ -1,17 +1,10 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { createEngine } from "../js/engine.ts";
-import {
-  createSearchEngine,
-  readMoves,
-  readPosition,
-  writePosition,
-  type SearchEngine,
-} from "../js/search-engine.ts";
+import { compileEngines } from "../js/engines.ts";
+import { readMoves, readPosition, writePosition, type SearchEngine } from "../js/search-engine.ts";
 import { listModels, type RegisteredModel } from "../models/registry.ts";
 import { createMulberry32 } from "../oracle/mulberry32.ts";
 
@@ -59,21 +52,11 @@ const getBudget = ({ id, boardSize }: RegisteredModel): Budget => {
   return budget;
 };
 
-const readArrayBuffer = (filePath: string) => {
-  const bytes = fs.readFileSync(filePath);
+const loadEngines = async (model: RegisteredModel) => {
+  const compiled = await compileEngines(model.read, ["search.wasm", "infer.wasm"]);
+  const loaded = await compiled.load(await model.read("go-model.bin"), { boardSize: model.boardSize });
 
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-};
-
-const loadEngines = async ({ weightsPath, wasm }: RegisteredModel) => {
-  const weights = readArrayBuffer(weightsPath);
-  const searchModule = new WebAssembly.Module(fs.readFileSync(wasm("search.wasm")));
-  const inferModule = new WebAssembly.Module(fs.readFileSync(wasm("infer.wasm")));
-
-  return {
-    searchEngine: await createSearchEngine(searchModule, weights.slice(0)),
-    inferEngine: await createEngine(inferModule, weights.slice(0)),
-  };
+  return { searchEngine: await loaded.createSearchEngine(), inferEngine: await loaded.createEngine() };
 };
 
 const MODELS = listModels().map((model) => ({

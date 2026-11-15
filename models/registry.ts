@@ -33,6 +33,8 @@ type ModelFiles = {
   wasm: (name: WasmName) => string;
   /** The path of a wasm file if it is built, for the callers to whom it is optional. */
   wasmIfBuilt: (name: WasmName) => string | null;
+  /** Reads a built wasm file or the weights: the Node adapter of js/engines.ts. */
+  read: (file: WasmName | "go-model.bin") => Promise<ArrayBuffer>;
 };
 
 type Registration =
@@ -101,29 +103,36 @@ const describeModel = <Fields extends object>(
 
     return fs.existsSync(wasmPath) ? wasmPath : null;
   };
+  const wasm = (name: WasmName) => {
+    const wasmPath = wasmIfBuilt(name);
+
+    if (wasmPath === null) {
+      throw new Error(`${id}/${name} is not built: run "zig build ${WASM_STEPS[name]}${buildCommand}".`);
+    }
+
+    return wasmPath;
+  };
+  const weightsPath = path.join(directory, "go-model.bin");
 
   return {
     ...fields,
     id,
     directory,
     manifestPath,
-    weightsPath: path.join(directory, "go-model.bin"),
+    weightsPath,
     get manifest() {
       return readManifest();
     },
     get boardSize() {
       return readManifest().architecture.boardSize;
     },
-    wasm: (name) => {
-      const wasmPath = wasmIfBuilt(name);
-
-      if (wasmPath === null) {
-        throw new Error(`${id}/${name} is not built: run "zig build ${WASM_STEPS[name]}${buildCommand}".`);
-      }
-
-      return wasmPath;
-    },
+    wasm,
     wasmIfBuilt,
+    read: async (file) => {
+      const bytes = await fs.promises.readFile(file === "go-model.bin" ? weightsPath : wasm(file));
+
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    },
   };
 };
 

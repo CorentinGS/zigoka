@@ -1,36 +1,11 @@
-import { createEngine, type Engine } from "./engine.ts";
-import { describeLoadError } from "./load-error.ts";
+import { compileEngines, fetchFiles, type Engine } from "./engines.ts";
 
-const fetchInferBytes = async () => {
-  const response = await fetch(new URL("./infer.wasm", import.meta.url));
-
-  if (!response.ok) {
-    throw new Error(`infer.wasm answered ${response.status}.`);
-  }
-
-  return response.arrayBuffer();
-};
-
-const compileInferModule = async () => {
-  let bytes: ArrayBuffer;
-
-  try {
-    bytes = await fetchInferBytes();
-  } catch {
-    throw new Error(describeLoadError({ fetchFailed: true, simdValid: false }));
-  }
-
-  try {
-    return await WebAssembly.compile(bytes);
-  } catch {
-    throw new Error(
-      describeLoadError({ fetchFailed: false, simdValid: WebAssembly.validate(bytes) }),
-    );
-  }
-};
-
-const inferModule = compileInferModule();
-inferModule.catch(() => undefined);
+// Compiled as soon as the worker starts; each initialize then brings its own weights.
+const compiled = compileEngines(
+  fetchFiles({ "infer.wasm": new URL("./infer.wasm", import.meta.url) }),
+  ["infer.wasm"],
+);
+compiled.catch(() => undefined);
 
 let engine: Engine | null = null;
 let pendingMessages: Promise<void> = Promise.resolve();
@@ -41,7 +16,12 @@ const handleMessage = async (
   try {
     if (message.type === "initialize") {
       engine = null;
-      engine = await createEngine(await inferModule, message.weightsBuffer);
+      // worker.js serves any model (the bench copies it for each one): the client's manifest
+      // gives the board it plays.
+      const engines = await (await compiled).load(message.weightsBuffer, {
+        boardSize: message.manifest.architecture.boardSize,
+      });
+      engine = await engines.createEngine();
       const response: GoModelWorkerReadyMessage = {
         requestId: message.requestId,
         type: "ready",

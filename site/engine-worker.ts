@@ -1,18 +1,23 @@
-import { createEngine, type Engine } from "../js/engine.ts";
-import { createSearchEngine, type SearchEngine } from "../js/search-engine.ts";
+import {
+  compileEngines,
+  fetchFiles,
+  type Engine,
+  type EngineFile,
+  type LoadedEngines,
+  type SearchEngine,
+} from "../js/engines.ts";
+import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
 import {
   encodeStudentFeatures,
   selectHighestLegalMove,
 } from "../vendor/moka/src/game.ts";
 import { LEVEL_BY_ID, type SiteWorkerRequest, type SiteWorkerResponse } from "./protocol.ts";
 
-const WORKER_FILE_NAME = "engine-worker.js";
+const ENGINE_FILES: EngineFile[] = ["infer.wasm", "search.wasm", "go-model.bin"];
 
 type LoadedEngine = {
+  engines: LoadedEngines;
   engine: Engine;
-  inferModule: WebAssembly.Module;
-  searchModule: WebAssembly.Module;
-  weights: ArrayBuffer;
 };
 
 const post = (response: SiteWorkerResponse) => self.postMessage(response);
@@ -28,87 +33,15 @@ const assetUrl = (fileName: string) => {
   return url.href;
 };
 
-const fetchBytes = async (url: string) => {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`${url} answered ${response.status}.`);
-  }
-
-  return response.arrayBuffer();
-};
-
-/** Same diagnostics as js/load-error.ts, parameterized by file name. */
-const describeWasmLoadError = (
-  fileName: string,
-  { fetchFailed, simdValid }: { fetchFailed: boolean; simdValid: boolean },
-) => {
-  if (fetchFailed) {
-    return `Failed to load ${fileName}.`;
-  }
-
-  if (!simdValid) {
-    return "WebAssembly SIMD is not supported in this browser.";
-  }
-
-  return (
-    `WebAssembly compilation was blocked; the Content Security Policy of ${WORKER_FILE_NAME} ` +
-    "must allow 'wasm-unsafe-eval'."
-  );
-};
-
-const compileWasmModule = async (fileName: string) => {
-  let bytes: ArrayBuffer;
-
-  try {
-    bytes = await fetchBytes(assetUrl(fileName));
-  } catch {
-    throw new Error(describeWasmLoadError(fileName, { fetchFailed: true, simdValid: false }));
-  }
-
-  try {
-    return await WebAssembly.compile(bytes);
-  } catch {
-    throw new Error(
-      describeWasmLoadError(fileName, {
-        fetchFailed: false,
-        simdValid: WebAssembly.validate(bytes),
-      }),
-    );
-  }
-};
-
 const loadEngine = async (): Promise<LoadedEngine> => {
-  const manifestUrl = assetUrl("go-model.json");
-  const weightsUrl = assetUrl("go-model.bin");
-
-  let manifest: GoModelManifest;
-  let weights: ArrayBuffer;
-
-  try {
-    const manifestResponse = await fetch(manifestUrl);
-
-    if (!manifestResponse.ok) {
-      throw new Error(`${manifestUrl} answered ${manifestResponse.status}.`);
-    }
-
-    manifest = (await manifestResponse.json()) as GoModelManifest;
-    weights = await fetchBytes(weightsUrl);
-  } catch {
-    throw new Error("Failed to load the model files.");
-  }
-
-  if (weights.byteLength !== manifest.weightsBytes) {
-    throw new Error("Model manifest and weights disagree on the weights size.");
-  }
-
-  const [inferModule, searchModule] = await Promise.all([
-    compileWasmModule("infer.wasm"),
-    compileWasmModule("search.wasm"),
+  const read = fetchFiles(Object.fromEntries(ENGINE_FILES.map((file) => [file, assetUrl(file)])));
+  const [compiled, weights] = await Promise.all([
+    compileEngines(read, ["infer.wasm", "search.wasm"]),
+    read("go-model.bin"),
   ]);
-  const engine = await createEngine(inferModule, weights);
+  const engines = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
 
-  return { engine, inferModule, searchModule, weights };
+  return { engines, engine: await engines.createEngine() };
 };
 
 let loadedEngine: LoadedEngine | null = null;
@@ -127,8 +60,8 @@ const handleNewGame = async () => {
     throw new Error("The site engine worker is not initialized.");
   }
 
-  // A fresh weights copy gives every game a fresh search tree.
-  searchEngine = await createSearchEngine(loadedEngine.searchModule, loadedEngine.weights.slice(0));
+  // Every game gets a new search engine, so a new search tree.
+  searchEngine = await loadedEngine.engines.createSearchEngine();
 };
 
 const handleMove = async (request: Extract<SiteWorkerRequest, { type: "move" }>) => {

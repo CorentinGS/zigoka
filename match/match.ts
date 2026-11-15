@@ -9,8 +9,7 @@ import { findModel } from "../models/registry.ts";
 import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
 import { createGameState, encodeStudentFeatures, playMove, selectHighestLegalMove } from "../vendor/moka/src/game.ts";
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
-import { createEngine } from "../js/engine.ts";
-import { createSearchEngine } from "../js/search-engine.ts";
+import { compileEngines } from "../js/engines.ts";
 import {
   createOpenings,
   createPlayer,
@@ -72,27 +71,16 @@ type GameTiming = { index: number; slot: number; startMs: number; endMs: number 
 /** A registered model, or a local one built with `zig build -Dlocal-model`. */
 const loadEngines = async (modelId: string): Promise<Engines> => {
   const model = findModel(modelId);
-  const { manifest, boardSize } = model;
+  const loadModel = async () => {
+    const compiled = await compileEngines(model.read, ["infer.wasm", "search.wasm"]);
+    const loaded = await compiled.load(await model.read("go-model.bin"), { boardSize: GO_BOARD_SIZE });
 
-  if (boardSize !== GO_BOARD_SIZE) {
-    throw new Error(
-      `This match plays ${GO_BOARD_SIZE}x${GO_BOARD_SIZE} games; model "${modelId}" is ` +
-        `${boardSize}x${boardSize}.`,
-    );
-  }
-
-  const weights = fs.readFileSync(model.weightsPath);
-  const weightsBuffer = weights.buffer.slice(
-    weights.byteOffset,
-    weights.byteOffset + weights.byteLength,
-  );
-  const module = await WebAssembly.compile(fs.readFileSync(model.wasm("infer.wasm")));
-  const zig = await createEngine(module, weightsBuffer.slice(0));
-  const searchEngine = await createSearchEngine(
-    await WebAssembly.compile(fs.readFileSync(model.wasm("search.wasm"))),
-    weightsBuffer.slice(0),
-  );
-  const moka = GoModelRuntime.create(manifest, weightsBuffer.slice(0));
+    return { loaded, zig: await loaded.createEngine(), searchEngine: await loaded.createSearchEngine() };
+  };
+  const { loaded, zig, searchEngine } = await loadModel().catch((error: unknown) => {
+    throw new Error(`Model "${modelId}": ${(error as Error).message}`, { cause: error });
+  });
+  const moka = GoModelRuntime.create(model.manifest, loaded.weights);
 
   crossCheck(modelId, (features) => zig.infer(features), (features) => moka.infer(features));
 

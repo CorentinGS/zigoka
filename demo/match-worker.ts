@@ -1,6 +1,6 @@
 import { GoModelRuntime } from "../vendor/moka/src/runtime.ts";
-import { createEngine } from "../js/engine.ts";
-import { createSearchEngine } from "../js/search-engine.ts";
+import { GO_BOARD_SIZE } from "../vendor/moka/src/constants.ts";
+import { compileEngines, fetchFiles, type Engine, type LoadedEngines } from "../js/engines.ts";
 import {
   createOpenings,
   createPlayer,
@@ -11,43 +11,45 @@ import {
 } from "../match/games.ts";
 import type { MatchWorkerRequest, MatchWorkerResponse } from "./match-protocol.ts";
 
-const MODEL_URLS = {
-  manifest: "/dist/go-model.json",
-  weights: "/dist/go-model.bin",
-  infer: "/dist/infer.wasm",
-  search: "/demo/dist/search.wasm",
-};
+const MANIFEST_URL = "/dist/go-model.json";
+const read = fetchFiles({
+  "go-model.bin": "/dist/go-model.bin",
+  "infer.wasm": "/dist/infer.wasm",
+  "search.wasm": "/demo/dist/search.wasm",
+});
+
+type LoadedModel = { loaded: LoadedEngines; zig: Engine; moka: GoModelRuntime };
 
 type Players = { first: ReturnType<typeof createPlayer>; second: ReturnType<typeof createPlayer> };
 
 const post = (response: MatchWorkerResponse) => self.postMessage(response);
 
-const fetchChecked = async (url: string) => {
-  const response = await fetch(url);
+const fetchManifest = async () => {
+  const response = await fetch(MANIFEST_URL);
 
   if (!response.ok) {
-    throw new Error(`${url} answered ${response.status}.`);
+    throw new Error(`${MANIFEST_URL} answered ${response.status}.`);
   }
 
-  return response;
+  return (await response.json()) as GoModelManifest;
 };
 
-const loadEngines = async (): Promise<Engines> => {
-  const [manifestResponse, weightsResponse, inferResponse, searchResponse] = await Promise.all([
-    fetchChecked(MODEL_URLS.manifest),
-    fetchChecked(MODEL_URLS.weights),
-    fetchChecked(MODEL_URLS.infer),
-    fetchChecked(MODEL_URLS.search),
+const loadModel = async (): Promise<LoadedModel> => {
+  const [compiled, weights, manifest] = await Promise.all([
+    compileEngines(read, ["infer.wasm", "search.wasm"]),
+    read("go-model.bin"),
+    fetchManifest(),
   ]);
-  const manifest = (await manifestResponse.json()) as GoModelManifest;
-  const weights = await weightsResponse.arrayBuffer();
-  const [inferModule, searchModule] = await Promise.all([
-    WebAssembly.compile(await inferResponse.arrayBuffer()),
-    WebAssembly.compile(await searchResponse.arrayBuffer()),
-  ]);
-  const zig = await createEngine(inferModule, weights.slice(0));
-  const searchEngine = await createSearchEngine(searchModule, weights.slice(0));
-  const moka = GoModelRuntime.create(manifest, weights);
+  const loaded = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
+  const zig = await loaded.createEngine();
+  const moka = GoModelRuntime.create(manifest, loaded.weights);
+
+  return { loaded, zig, moka };
+};
+
+/** Each set of engines has a search engine, and so a search tree, of its own. */
+const createEngines = async ({ loaded, zig, moka }: LoadedModel): Promise<Engines> => {
+  const searchEngine = await loaded.createSearchEngine();
 
   return {
     zig: (features) => zig.infer(features),
@@ -65,12 +67,14 @@ const handleRequest = async (request: MatchWorkerRequest) => {
 
     const { first, second } = request.config;
 
-    engines = await loadEngines();
+    const model = await loadModel();
+
+    engines = await createEngines(model);
     players = {
       first: createPlayer(first, engines, request.config, getTimeMs(request.config, "first")),
       second: createPlayer(
         second,
-        usesSearchWasm(first) && usesSearchWasm(second) ? await loadEngines() : engines,
+        usesSearchWasm(first) && usesSearchWasm(second) ? await createEngines(model) : engines,
         request.config,
         getTimeMs(request.config, "second"),
       ),

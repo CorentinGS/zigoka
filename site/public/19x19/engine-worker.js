@@ -5,52 +5,45 @@ var getBufferSha256 = async (buffer) => {
 };
 
 // js/engine.ts
-var SHA256_BYTE_COUNT = 32;
-var SHA256_PREFIX_LENGTH = 8;
 var STATUS_OK = 0;
 var STATUS_NON_FINITE_OUTPUT = 3;
-var toHex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-var instantiateWithWeights = async (module, weights) => {
-  const instance = await WebAssembly.instantiate(module, {});
-  const exports = instance.exports;
-  const memory = exports.memory.buffer;
-  const weightsCapacity = exports.weights_capacity();
-  if (weights.byteLength !== weightsCapacity) {
-    throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
+var checkStatus = (status) => {
+  if (status === STATUS_NON_FINITE_OUTPUT) {
+    throw new Error("Model produced a non-finite output.");
   }
-  const expectedSha256 = toHex(
-    new Uint8Array(memory, exports.expected_sha256_ptr(), SHA256_BYTE_COUNT)
-  );
-  if (await getBufferSha256(weights) !== expectedSha256) {
-    throw new Error(
-      `Model weights do not match this engine build (expected sha256 ${expectedSha256.slice(0, SHA256_PREFIX_LENGTH)}\u2026).`
-    );
+  if (status !== STATUS_OK) {
+    throw new Error("Go model inference failed.");
   }
-  new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
-  exports.load_weights();
-  return exports;
 };
-var createEngine = async (module, weights) => {
-  const exports = await instantiateWithWeights(module, weights);
-  const memory = exports.memory.buffer;
+var createInputWriter = (exports) => {
   const featureCount = exports.feature_count();
-  const input = new Float32Array(memory, exports.input_ptr(), featureCount);
-  const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
-  const value = new Float64Array(memory, exports.value_ptr(), 1);
+  const input = new Float32Array(exports.memory.buffer, exports.input_ptr(), featureCount);
+  return (features) => {
+    if (features.length !== featureCount) {
+      throw new Error(`Input features must have ${featureCount} values.`);
+    }
+    input.set(features);
+  };
+};
+var toEngine = (exports) => {
+  const writeInput = createInputWriter(exports);
+  const policy = new Float32Array(exports.memory.buffer, exports.policy_ptr(), exports.policy_moves());
+  const value = new Float64Array(exports.memory.buffer, exports.value_ptr(), 1);
   return {
     infer: (features) => {
-      if (features.length !== featureCount) {
-        throw new Error(`Input features must have ${featureCount} values.`);
-      }
-      input.set(features);
-      const status = exports.infer(1);
-      if (status === STATUS_NON_FINITE_OUTPUT) {
-        throw new Error("Model produced a non-finite output.");
-      }
-      if (status !== STATUS_OK) {
-        throw new Error("Go model inference failed.");
-      }
+      writeInput(features);
+      checkStatus(exports.infer(1));
       return { policyLogits: policy.slice(), value: value[0] };
+    }
+  };
+};
+var toProfileEngine = (exports) => {
+  const writeInput = createInputWriter(exports);
+  return {
+    ...toEngine(exports),
+    forwardTrunk: (features) => {
+      writeInput(features);
+      checkStatus(exports.forward_trunk(1));
     }
   };
 };
@@ -87,19 +80,18 @@ var writePosition = (exports, state) => {
   view.setInt8(POSITION_NEXT_COLOR_OFFSET, state.nextColor);
   new Int8Array(exports.memory.buffer, pointer + POSITION_BOARD_OFFSET, area).set(state.board);
 };
-var checkStatus = (status) => {
+var checkStatus2 = (status) => {
   if (status !== STATUS_OK2) {
     throw new Error(STATUS_MESSAGES[status] ?? `The search failed with status ${status}.`);
   }
 };
-var createSearchEngine = async (module, weights) => {
-  const exports = await instantiateWithWeights(module, weights);
+var toSearchEngine = (exports) => {
   let rootMs = 0;
   const search = (state, { timeMs, maxVisits = Infinity, batch = 1, reuse = false }) => {
     const startedAt = performance.now();
     const deadline = startedAt + timeMs;
     writePosition(exports, state);
-    checkStatus(exports.search_start(reuse ? 1 : 0));
+    checkStatus2(exports.search_start(reuse ? 1 : 0));
     const reused = exports.search_visits();
     if (exports.search_reused() === 0) {
       rootMs = performance.now() - startedAt;
@@ -120,7 +112,7 @@ var createSearchEngine = async (module, weights) => {
         poolFull = true;
         break;
       }
-      checkStatus(status);
+      checkStatus2(status);
       const msPerVisit = Math.max((finishedAt - chunkStartedAt) / Math.max(done, 1), rootMs);
       chunk = Math.max(1, Math.floor((deadline - finishedAt) / msPerVisit / 2));
     }
@@ -131,6 +123,87 @@ var createSearchEngine = async (module, weights) => {
     visits: exports.search_child_visits(index)
   }));
   return { search, rootVisits, exports };
+};
+
+// js/engines.ts
+var SHA256_BYTE_COUNT = 32;
+var SHA256_PREFIX_LENGTH = 8;
+var SIMD_ERROR = "WebAssembly SIMD is not supported in this browser.";
+var toHex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+var describeBlockedCompilation = (location) => `WebAssembly compilation was blocked; the Content Security Policy of ${location.pathname.split("/").pop() || "this page"} must allow 'wasm-unsafe-eval'.`;
+var compileWasm = async (bytes) => {
+  try {
+    return await WebAssembly.compile(bytes);
+  } catch (error) {
+    if (!WebAssembly.validate(bytes)) {
+      throw new Error(SIMD_ERROR);
+    }
+    const location = globalThis.location;
+    throw location ? new Error(describeBlockedCompilation(location)) : error;
+  }
+};
+var compileEngines = async (read, files) => {
+  const modules = new Map(
+    await Promise.all(
+      files.map(async (file) => [file, await compileWasm(await read(file))])
+    )
+  );
+  return {
+    load: async (weights, { boardSize }) => {
+      const sha256 = await getBufferSha256(weights);
+      const instantiate = async (file) => {
+        const module = modules.get(file);
+        if (!module) {
+          throw new Error(`${file} was not compiled: pass it to compileEngines.`);
+        }
+        const instance = await WebAssembly.instantiate(module, {});
+        const exports = instance.exports;
+        const engineBoardSize = exports.board_size();
+        if (engineBoardSize !== boardSize) {
+          throw new Error(
+            `${file} plays ${engineBoardSize}\xD7${engineBoardSize} games; this host plays ${boardSize}\xD7${boardSize}.`
+          );
+        }
+        const memory = exports.memory.buffer;
+        const weightsCapacity = exports.weights_capacity();
+        if (weights.byteLength !== weightsCapacity) {
+          throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
+        }
+        const expectedSha256 = toHex(
+          new Uint8Array(memory, exports.expected_sha256_ptr(), SHA256_BYTE_COUNT)
+        );
+        if (sha256 !== expectedSha256) {
+          throw new Error(
+            `Model weights do not match this engine build (expected sha256 ${expectedSha256.slice(0, SHA256_PREFIX_LENGTH)}\u2026).`
+          );
+        }
+        new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
+        exports.load_weights();
+        return exports;
+      };
+      return {
+        weights,
+        createEngine: async () => toEngine(await instantiate("infer.wasm")),
+        createSearchEngine: async () => toSearchEngine(await instantiate("search.wasm")),
+        createProfileEngine: async () => toProfileEngine(await instantiate("infer-profile.wasm"))
+      };
+    }
+  };
+};
+var fetchFiles = (urls) => async (file) => {
+  const url = urls[file];
+  if (url === void 0) {
+    throw new Error(`No URL given for ${file}.`);
+  }
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`${url} answered ${response.status}.`);
+    }
+    return await response.arrayBuffer();
+  } catch {
+    throw new Error(`Failed to load ${file}.`);
+  }
 };
 
 // vendor/moka/src/constants.ts
@@ -342,71 +415,21 @@ var LEVELS = [
 var LEVEL_BY_ID = Object.fromEntries(LEVELS.map((level) => [level.id, level]));
 
 // site/engine-worker.ts
-var WORKER_FILE_NAME = "engine-worker.js";
+var ENGINE_FILES = ["infer.wasm", "search.wasm", "go-model.bin"];
 var post = (response) => self.postMessage(response);
 var assetUrl = (fileName) => {
   const url = new URL(`./${fileName}`, import.meta.url);
   url.search = new URL(import.meta.url).search;
   return url.href;
 };
-var fetchBytes = async (url) => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`${url} answered ${response.status}.`);
-  }
-  return response.arrayBuffer();
-};
-var describeWasmLoadError = (fileName, { fetchFailed, simdValid }) => {
-  if (fetchFailed) {
-    return `Failed to load ${fileName}.`;
-  }
-  if (!simdValid) {
-    return "WebAssembly SIMD is not supported in this browser.";
-  }
-  return `WebAssembly compilation was blocked; the Content Security Policy of ${WORKER_FILE_NAME} must allow 'wasm-unsafe-eval'.`;
-};
-var compileWasmModule = async (fileName) => {
-  let bytes;
-  try {
-    bytes = await fetchBytes(assetUrl(fileName));
-  } catch {
-    throw new Error(describeWasmLoadError(fileName, { fetchFailed: true, simdValid: false }));
-  }
-  try {
-    return await WebAssembly.compile(bytes);
-  } catch {
-    throw new Error(
-      describeWasmLoadError(fileName, {
-        fetchFailed: false,
-        simdValid: WebAssembly.validate(bytes)
-      })
-    );
-  }
-};
 var loadEngine = async () => {
-  const manifestUrl = assetUrl("go-model.json");
-  const weightsUrl = assetUrl("go-model.bin");
-  let manifest;
-  let weights;
-  try {
-    const manifestResponse = await fetch(manifestUrl);
-    if (!manifestResponse.ok) {
-      throw new Error(`${manifestUrl} answered ${manifestResponse.status}.`);
-    }
-    manifest = await manifestResponse.json();
-    weights = await fetchBytes(weightsUrl);
-  } catch {
-    throw new Error("Failed to load the model files.");
-  }
-  if (weights.byteLength !== manifest.weightsBytes) {
-    throw new Error("Model manifest and weights disagree on the weights size.");
-  }
-  const [inferModule, searchModule] = await Promise.all([
-    compileWasmModule("infer.wasm"),
-    compileWasmModule("search.wasm")
+  const read = fetchFiles(Object.fromEntries(ENGINE_FILES.map((file) => [file, assetUrl(file)])));
+  const [compiled, weights] = await Promise.all([
+    compileEngines(read, ["infer.wasm", "search.wasm"]),
+    read("go-model.bin")
   ]);
-  const engine = await createEngine(inferModule, weights);
-  return { engine, inferModule, searchModule, weights };
+  const engines = await compiled.load(weights, { boardSize: GO_BOARD_SIZE });
+  return { engines, engine: await engines.createEngine() };
 };
 var loadedEngine = null;
 var searchEngine = null;
@@ -420,7 +443,7 @@ var handleNewGame = async () => {
   if (!loadedEngine) {
     throw new Error("The site engine worker is not initialized.");
   }
-  searchEngine = await createSearchEngine(loadedEngine.searchModule, loadedEngine.weights.slice(0));
+  searchEngine = await loadedEngine.engines.createSearchEngine();
 };
 var handleMove = async (request) => {
   if (!loadedEngine) {

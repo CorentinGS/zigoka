@@ -711,7 +711,7 @@ var startGame = () => {
   worker.postMessage({ type: "new-game" });
   beginTurn();
 };
-var worker = new Worker(new URL("./engine-worker.js?v=87c6ac01a8f7", import.meta.url), { type: "module" });
+var worker = new Worker(new URL("./engine-worker.js?v=1e49a62864d9", import.meta.url), { type: "module" });
 worker.addEventListener("message", (event) => {
   const response = event.data;
   if (response.type === "ready") {

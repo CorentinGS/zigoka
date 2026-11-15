@@ -1,4 +1,4 @@
-import { instantiateWithWeights, type InferExports } from "./engine.ts";
+import type { InferExports } from "./engine.ts";
 
 const STATUS_OK = 0;
 const STATUS_POOL_FULL = 5;
@@ -93,11 +93,8 @@ const checkStatus = (status: number) => {
   }
 };
 
-const createSearchEngine = async (
-  module: WebAssembly.Module,
-  weights: ArrayBuffer,
-): Promise<SearchEngine> => {
-  const exports = await instantiateWithWeights<SearchExports>(module, weights);
+/** A search engine on an instance whose weights js/engines.ts has checked and loaded. */
+const toSearchEngine = (exports: SearchExports): SearchEngine => {
   let rootMs = 0;
 
   const search = (
@@ -157,5 +154,5 @@ const createSearchEngine = async (
   return { search, rootVisits, exports };
 };
 
-export { createSearchEngine, readMoves, readPosition, writePosition };
+export { readMoves, readPosition, toSearchEngine, writePosition };
 export type { SearchEngine, SearchExports, SearchOptions, SearchOutcome };

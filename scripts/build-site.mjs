@@ -52,7 +52,6 @@ const editionFiles = ({ page, dist, modelId }) => {
     [`${dist}/engine-worker.js`, "engine-worker.js"],
     [model.wasm("search.wasm"), "search.wasm"],
     [model.wasm("infer.wasm"), "infer.wasm"],
-    [model.manifestPath, "go-model.json"],
     [model.weightsPath, "go-model.bin"],
   ];
 };
@@ -65,7 +64,7 @@ const PUBLISHED_FILES = [
 ];
 
 // The worker gives its own `?v=` to the files it fetches (site/engine-worker.ts).
-const ENGINE_FILES = ["engine-worker.js", "infer.wasm", "search.wasm", "go-model.json", "go-model.bin"];
+const ENGINE_FILES = ["engine-worker.js", "infer.wasm", "search.wasm", "go-model.bin"];
 
 const publicPath = (fileName) => path.join(publicDirectory, fileName);
 

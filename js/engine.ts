@@ -1,8 +1,3 @@
-import { getBufferSha256 } from "../vendor/moka/src/utils/get-buffer-sha256.ts";
-
-const SHA256_BYTE_COUNT = 32;
-const SHA256_PREFIX_LENGTH = 8;
-
 const STATUS_OK = 0;
 const STATUS_NON_FINITE_OUTPUT = 3;
 
@@ -23,76 +18,71 @@ interface InferExports {
   infer: (count: number) => number;
 }
 
+/** infer-profile.wasm: the exports of infer.wasm, plus the trunk alone. */
+interface ProfileExports extends InferExports {
+  forward_trunk: (count: number) => number;
+}
+
 interface Engine {
   infer: (features: Float32Array) => GoModelInference;
 }
 
-const toHex = (bytes: Uint8Array) =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+/** The bench's engine: `forwardTrunk` runs the trunk without the heads. */
+interface ProfileEngine extends Engine {
+  forwardTrunk: (features: Float32Array) => void;
+}
 
-/** Instantiates `module` and loads `weights` after checking their length and digest. */
-const instantiateWithWeights = async <Exports extends InferExports>(
-  module: WebAssembly.Module,
-  weights: ArrayBuffer,
-): Promise<Exports> => {
-  const instance = await WebAssembly.instantiate(module, {});
-  const exports = instance.exports as unknown as Exports;
-  const memory = exports.memory.buffer;
-  const weightsCapacity = exports.weights_capacity();
-
-  if (weights.byteLength !== weightsCapacity) {
-    throw new Error(`Model weights have the wrong length (expected ${weightsCapacity} bytes).`);
+const checkStatus = (status: number) => {
+  if (status === STATUS_NON_FINITE_OUTPUT) {
+    throw new Error("Model produced a non-finite output.");
   }
 
-  const expectedSha256 = toHex(
-    new Uint8Array(memory, exports.expected_sha256_ptr(), SHA256_BYTE_COUNT),
-  );
-
-  if ((await getBufferSha256(weights)) !== expectedSha256) {
-    throw new Error(
-      "Model weights do not match this engine build " +
-        `(expected sha256 ${expectedSha256.slice(0, SHA256_PREFIX_LENGTH)}…).`,
-    );
+  if (status !== STATUS_OK) {
+    throw new Error("Go model inference failed.");
   }
-
-  new Uint8Array(memory, exports.weights_ptr(), weightsCapacity).set(new Uint8Array(weights));
-  exports.load_weights();
-
-  return exports;
 };
 
-const createEngine = async (
-  module: WebAssembly.Module,
-  weights: ArrayBuffer,
-): Promise<Engine> => {
-  const exports = await instantiateWithWeights(module, weights);
-  const memory = exports.memory.buffer;
+/** Writes one position's features to the input, after checking their count. */
+const createInputWriter = (exports: InferExports) => {
   const featureCount = exports.feature_count();
-  const input = new Float32Array(memory, exports.input_ptr(), featureCount);
-  const policy = new Float32Array(memory, exports.policy_ptr(), exports.policy_moves());
-  const value = new Float64Array(memory, exports.value_ptr(), 1);
+  const input = new Float32Array(exports.memory.buffer, exports.input_ptr(), featureCount);
+
+  return (features: Float32Array) => {
+    if (features.length !== featureCount) {
+      throw new Error(`Input features must have ${featureCount} values.`);
+    }
+
+    input.set(features);
+  };
+};
+
+/** An engine on an instance whose weights js/engines.ts has checked and loaded. */
+const toEngine = (exports: InferExports): Engine => {
+  const writeInput = createInputWriter(exports);
+  const policy = new Float32Array(exports.memory.buffer, exports.policy_ptr(), exports.policy_moves());
+  const value = new Float64Array(exports.memory.buffer, exports.value_ptr(), 1);
 
   return {
     infer: (features: Float32Array) => {
-      if (features.length !== featureCount) {
-        throw new Error(`Input features must have ${featureCount} values.`);
-      }
+      writeInput(features);
+      checkStatus(exports.infer(1));
 
-      input.set(features);
-      const status = exports.infer(1);
-
-      if (status === STATUS_NON_FINITE_OUTPUT) {
-        throw new Error("Model produced a non-finite output.");
-      }
-
-      if (status !== STATUS_OK) {
-        throw new Error("Go model inference failed.");
-      }
-
-      return { policyLogits: policy.slice(), value: value[0] };
+      return { policyLogits: policy.slice(), value: value[0] as number };
     },
   };
 };
 
-export { createEngine, instantiateWithWeights };
-export type { Engine, InferExports };
+const toProfileEngine = (exports: ProfileExports): ProfileEngine => {
+  const writeInput = createInputWriter(exports);
+
+  return {
+    ...toEngine(exports),
+    forwardTrunk: (features: Float32Array) => {
+      writeInput(features);
+      checkStatus(exports.forward_trunk(1));
+    },
+  };
+};
+
+export { toEngine, toProfileEngine };
+export type { Engine, InferExports, ProfileEngine, ProfileExports };
