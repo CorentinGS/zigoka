@@ -53,10 +53,11 @@ type Block = {
   bytes: Uint8Array;
 };
 
-function fail(message: string): never {
+// Typed in full: TypeScript narrows after a call only when the callee's type is written out.
+const fail: (message: string) => never = (message) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
-}
+};
 
 const elementBytes = (dtype: string): number => {
   switch (dtype) {

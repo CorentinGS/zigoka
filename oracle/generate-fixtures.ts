@@ -119,10 +119,11 @@ type Runtimes = {
   health: { counter: HealthCounter | null };
 };
 
-function fail(message: string): never {
+// Typed in full: TypeScript narrows after a call only when the callee's type is written out.
+const fail: (message: string) => never = (message) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
-}
+};
 
 const readValueOption = (name: string): string | null => {
   const index = process.argv.indexOf(name);

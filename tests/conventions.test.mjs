@@ -13,12 +13,19 @@ import { createScanner } from "typescript/unstable/ast/scanner";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/**
- * The folders whose modules follow the conventions. oracle/ is not one yet: its three
- * `function fail(): never` let TypeScript narrow after a call, which an arrow function only does
- * with its type written out.
- */
-const CHECKED_PATHS = ["bench", "demo", "js", "match", "models", "scripts", "site", "tests", "playwright.config.ts"];
+/** The folders whose modules follow the conventions: all of this package's code but vendor/ and video/. */
+const CHECKED_PATHS = [
+  "bench",
+  "demo",
+  "js",
+  "match",
+  "models",
+  "oracle",
+  "scripts",
+  "site",
+  "tests",
+  "playwright.config.ts",
+];
 
 /** A `/` after one of these divides; after any other token it starts a regular expression. */
 const OPERAND_ENDS = new Set([

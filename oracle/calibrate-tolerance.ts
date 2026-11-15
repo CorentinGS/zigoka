@@ -17,10 +17,11 @@ const LOGITS_CAP = 2e-3;
 const VALUE_CAP = 1e-3;
 const TOLERANCE_FACTOR = 4;
 
-function fail(message: string): never {
+// Typed in full: TypeScript narrows after a call only when the callee's type is written out.
+const fail: (message: string) => never = (message) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
-}
+};
 
 const readFloat32 = (filePath: string): Float32Array => {
   const content = fs.readFileSync(filePath);
