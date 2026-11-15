@@ -77,7 +77,7 @@ if [[ ! -e $run/export.done ]]; then
   log "export of seed $best to models/local/$name"
   "$python" -m go_pipeline.export --checkpoint "$run/s$best.pt" --output-dir "../models/local/$name" \
     > "$run/export.log" 2>&1
-  (cd .. && zig build models wasm search -Dlocal-model="$name:synthetic-19-v2" && pnpm build:js) \
+  (cd .. && zig build wasm search -Dlocal-model="$name:synthetic-19-v2" && pnpm build:js) \
     >> "$run/export.log" 2>&1
   touch "$run/export.done"
 fi
